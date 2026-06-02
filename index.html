@@ -55,7 +55,54 @@
         </div>
     </header>
 
-    <main class="flex-grow max-w-4xl w-full mx-auto p-4 space-y-4">
+    <!-- STATION ROLE SELECTOR -->
+    <section class="bg-slate-800/80 border-b border-slate-700/80 p-2 sticky top-[57px] z-40 backdrop-blur-md">
+        <div class="max-w-4xl mx-auto">
+            <div class="flex gap-1 bg-slate-950 p-1 rounded-xl border border-slate-700/60 text-xs font-semibold">
+                <button onclick="setStationRole('all')" id="roleBtn_all" class="flex-1 py-2.5 rounded-lg text-center transition duration-150 text-slate-400 hover:text-slate-200">
+                    💻 Dual/Admin
+                </button>
+                <button onclick="setStationRole('start')" id="roleBtn_start" class="flex-1 py-2.5 rounded-lg text-center transition duration-150 text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5">
+                    🛫 Start Line
+                </button>
+                <button onclick="setStationRole('finish')" id="roleBtn_finish" class="flex-1 py-2.5 rounded-lg text-center transition duration-150 text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5">
+                    🏁 Finish Line
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <main class="max-w-4xl w-full mx-auto p-4 space-y-4">
+
+        <!-- TIMING METHODOLOGY ACCURACY NOTE -->
+        <div class="bg-slate-850/60 border border-slate-700/50 rounded-xl p-3 text-xs text-slate-400 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span><strong>Split-Location Timing Tip:</strong> Ensure both phones have "Set Time Automatically" enabled in iOS/Android settings. This keeps both devices GPS/NTP synchronized to within milliseconds.</span>
+        </div>
+
+        <!-- CLOUD DIAGNOSTICS ALERT BANNER (Hidden by default, reveals on sync errors) -->
+        <div id="diagnosticsBanner" class="hidden bg-amber-950/95 border border-amber-500/50 rounded-2xl p-5 text-sm text-amber-200 shadow-xl space-y-3 transition-all duration-200">
+            <div class="flex justify-between items-start">
+                <div class="flex items-center gap-2.5 font-bold text-amber-300 text-base">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    Cloud Sync Offline
+                </div>
+                <button onclick="dismissDiagnostics()" class="text-amber-400 hover:text-white text-xs font-semibold bg-slate-900/40 hover:bg-slate-900/80 px-2.5 py-1 rounded-lg transition border border-amber-500/20">Dismiss</button>
+            </div>
+            <div>
+                <p class="text-[11px] uppercase tracking-wider text-amber-400 font-semibold mb-1">System Error Message:</p>
+                <p id="diagnosticsErrorText" class="text-xs font-mono bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-amber-400 break-all select-all">
+                    Error details...
+                </p>
+            </div>
+            <div id="diagnosticsInstructions" class="text-xs space-y-2.5 pt-1 text-slate-300">
+                <!-- Dynamic instructions injected here -->
+            </div>
+        </div>
 
         <!-- ROW 1: MASTER TIMEKEEPER -->
         <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col md:flex-row justify-between items-center gap-6">
@@ -86,7 +133,7 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             
             <!-- Timing Terminal Card -->
-            <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col justify-between">
+            <div id="terminalCard" class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col justify-between">
                 <div>
                     <h2 class="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
                         <span class="w-2 h-2 rounded-full bg-blue-500"></span> Record Boat Timestamp
@@ -103,7 +150,7 @@
                             <label class="block text-xs text-slate-400 mb-1">Crew / Club Name</label>
                             <input type="text" id="crewName" 
                                 class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-white text-base focus:outline-none focus:border-blue-500"
-                                placeholder="e.g. Oxford A" onkeydown="if(event.key==='Enter') document.getElementById('recordStartBtn').click()">
+                                placeholder="e.g. Oxford A" onkeydown="if(event.key==='Enter') triggerPrimaryAction()">
                         </div>
                     </div>
 
@@ -153,7 +200,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4 mt-2">
+                <div id="actionButtonsGroup" class="grid grid-cols-2 gap-4 mt-2">
                     <button id="recordStartBtn" onclick="recordAction('start')" class="py-4 bg-blue-600 hover:bg-blue-500 active:scale-95 transition rounded-xl font-bold text-base text-white shadow-lg shadow-blue-900/30 flex flex-col items-center justify-center gap-1">
                         <span class="text-xs opacity-80 uppercase tracking-widest">Rowing Out</span>
                         <span class="flex items-center gap-1.5">🛫 Record Start</span>
@@ -166,7 +213,7 @@
             </div>
 
             <!-- "On Course" Quick-Tap Finishing Area -->
-            <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col">
+            <div id="onCourseCard" class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col">
                 <div class="flex justify-between items-center mb-3">
                     <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
                         <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span> On Course Now
@@ -185,6 +232,29 @@
                         </svg>
                         <p class="text-xs">No boats currently on the course.<br>Log a Start above to begin!</p>
                     </div>
+                </div>
+            </div>
+
+            <!-- Start Marshal's Last 5 departures widget (Visible only in 'Start' role) -->
+            <div id="startMarshalRecentCard" class="hidden bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col">
+                <h2 class="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span> Recently Departed Queue
+                </h2>
+                <div class="overflow-hidden rounded-xl border border-slate-700/60">
+                    <table class="w-full text-left text-xs">
+                        <thead>
+                            <tr class="bg-slate-900 text-slate-400 border-b border-slate-700">
+                                <th class="py-2 px-3 font-bold">Bow</th>
+                                <th class="py-2 px-3">Crew</th>
+                                <th class="py-2 px-3">Start Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentDeparturesList" class="divide-y divide-slate-700/60 bg-slate-900/40 font-mono">
+                            <tr>
+                                <td colspan="3" class="py-4 text-center text-slate-500">No boats started yet.</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -223,7 +293,7 @@
                     </svg>
                     Export CSV
                 </button>
-                <button onclick="clearAllData()" class="px-4 py-2 bg-rose-950/40 hover:bg-rose-950/60 active:scale-95 transition rounded-xl text-sm font-semibold text-rose-400 flex items-center justify-center gap-1.5 border border-rose-900/50">
+                <button id="wipeBoardBtn" onclick="clearAllData()" class="px-4 py-2 bg-rose-950/40 hover:bg-rose-950/60 active:scale-95 transition rounded-xl text-sm font-semibold text-rose-400 flex items-center justify-center gap-1.5 border border-rose-900/50">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -233,7 +303,7 @@
         </div>
 
         <!-- RESULTS TABLE / STANDINGS -->
-        <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
+        <div id="standingsTableCard" class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-slate-700 flex justify-between items-center">
                 <h3 class="font-bold text-base text-white">Live Regatta Standings (Sorted by Net Time)</h3>
                 <span class="text-xs text-slate-400">Total 5,000 Meters</span>
@@ -382,6 +452,9 @@
             boats: {}
         };
 
+        // Station-specific roles: 'all' (Dual/Admin), 'start' (Start marshal), 'finish' (Finish marshal)
+        let stationRole = 'all';
+
         let timerInterval = null;
 
         // --- BOOTSTRAP FIREBASE / LOCAL MODE ---
@@ -397,6 +470,14 @@
         }
 
         window.onload = async function() {
+            // Restore saved station role selection
+            const savedRole = localStorage.getItem('regatta_station_role');
+            if (savedRole) {
+                setStationRole(savedRole);
+            } else {
+                setStationRole('all');
+            }
+
             if (isCloudEnabled) {
                 updateSyncStatus('connecting');
                 // Rule 3: Auth Before Queries
@@ -446,25 +527,103 @@
             if (status === 'connected') {
                 indicator.className = "text-xs bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-800 flex items-center gap-1";
                 indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ☁️ Cloud Active`;
+                dismissDiagnostics();
             } else if (status === 'connecting') {
                 indicator.className = "text-xs bg-sky-950 text-sky-400 px-2.5 py-1 rounded-full border border-sky-800 flex items-center gap-1";
                 indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span> Connecting Cloud...`;
             } else if (status === 'local') {
-                indicator.className = "text-xs bg-amber-950 text-amber-400 px-2.5 py-1 rounded-full border border-amber-800 flex items-center gap-1";
-                indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 📶 Local Mode (Offline)`;
+                indicator.className = "text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full border border-slate-700 flex items-center gap-1";
+                indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse"></span> 📶 Local Mode (Offline)`;
             } else if (status === 'local_fallback') {
                 indicator.className = "text-xs bg-amber-950 text-amber-400 px-2.5 py-1 rounded-full border border-amber-800 flex items-center gap-1";
                 indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 📶 Sync Error (Running Locally)`;
+                showDiagnostics(errorMsg || "A permissions or database config error is blocking Cloud Sync.");
             } else if (status === 'auth_failed') {
-                indicator.className = "text-xs bg-rose-950/90 text-rose-300 px-2.5 py-1.5 rounded-xl border border-rose-800/85 flex flex-col gap-0.5 items-start max-w-[260px]";
-                indicator.innerHTML = `
-                    <div class="flex items-center gap-1 font-semibold text-rose-200">
-                        <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> 
-                        <span>Offline (Auth Failed)</span>
+                indicator.className = "text-xs bg-rose-950/90 text-rose-300 px-2.5 py-1 rounded-full border border-rose-800/80 flex items-center gap-1";
+                indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Offline (Auth Failed)`;
+                showDiagnostics(errorMsg || "Firebase sign-in failed. Please verify Anonymous Auth settings.");
+            }
+        }
+
+        // --- DIAGNOSTICS & TROUBLESHOOTING INSTRUCTIONS INJECTOR ---
+        function showDiagnostics(errorMsg) {
+            const banner = document.getElementById('diagnosticsBanner');
+            const errorText = document.getElementById('diagnosticsErrorText');
+            const instructions = document.getElementById('diagnosticsInstructions');
+            
+            if (!banner || !errorText || !instructions) return;
+            
+            errorText.textContent = errorMsg;
+            
+            let html = '';
+            const lowerErr = errorMsg.toLowerCase();
+            
+            if (lowerErr.includes('permission') || lowerErr.includes('missing-permissions') || lowerErr.includes('insufficient') || lowerErr.includes('denied')) {
+                html = `
+                    <div class="border-t border-amber-500/20 pt-3 mt-2">
+                        <p class="font-bold text-amber-300 mb-1 flex items-center gap-1.5">
+                            <span class="flex h-2 w-2 rounded-full bg-amber-400"></span>
+                            Action Required: Publish Firestore Security Rules
+                        </p>
+                        <p class="text-xs text-slate-300 mb-2">Your database is set to Private. Copy and paste these sandbox rules so your timer can sync across devices:</p>
+                        <ol class="list-decimal pl-5 space-y-2 text-slate-300">
+                            <li>Open your <a href="https://console.firebase.google.com" target="_blank" class="underline text-sky-400 hover:text-sky-300 font-bold">Firebase Console</a>.</li>
+                            <li>Go to <strong>Firestore Database</strong> &gt; <strong>Rules</strong> tab.</li>
+                            <li>Paste the following configuration into the rules editor:</li>
+                        </ol>
+                        <pre class="bg-slate-950 p-3.5 rounded-xl text-[11px] text-emerald-400 overflow-x-auto select-all mt-2 border border-slate-800 font-mono">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /artifacts/{appId}/public/data/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}</pre>
+                        <ol class="list-decimal pl-5 mt-2 space-y-1 text-slate-300" start="4">
+                            <li>Click <strong>Publish</strong>. Sync will activate instantly!</li>
+                        </ol>
                     </div>
-                    <p class="text-[9px] leading-snug opacity-90">Please enable 'Anonymous Sign-In' inside your Firebase Authentication settings.</p>
+                `;
+            } else if (lowerErr.includes('auth') || lowerErr.includes('not-allowed') || lowerErr.includes('operation-not-allowed') || lowerErr.includes('anonymous')) {
+                html = `
+                    <div class="border-t border-amber-500/20 pt-3 mt-2">
+                        <p class="font-bold text-amber-300 mb-1 flex items-center gap-1.5">
+                            <span class="flex h-2 w-2 rounded-full bg-amber-400"></span>
+                            Action Required: Enable Anonymous Authentication
+                        </p>
+                        <p class="text-xs text-slate-300 mb-2">Firebase requires Anonymous sign-in to keep devices connected securely:</p>
+                        <ol class="list-decimal pl-5 space-y-2 text-slate-300">
+                            <li>Open your <a href="https://console.firebase.google.com" target="_blank" class="underline text-sky-400 hover:text-sky-300 font-bold">Firebase Console</a>.</li>
+                            <li>Navigate to <strong>Authentication</strong> &gt; <strong>Sign-in method</strong> tab (or "Providers").</li>
+                            <li>Click <strong>Add new provider</strong> (or edit existing) and select <strong>Anonymous</strong>.</li>
+                            <li>Toggle the switch to <strong>Enable</strong> and click <strong>Save</strong>.</li>
+                            <li>Refresh this page on your devices!</li>
+                        </ol>
+                    </div>
+                `;
+            } else {
+                html = `
+                    <div class="border-t border-amber-500/20 pt-3 mt-2">
+                        <p class="font-bold text-amber-300 mb-1 flex items-center gap-1.5">
+                            <span class="flex h-2 w-2 rounded-full bg-amber-400"></span>
+                            General Troubleshooting
+                        </p>
+                        <ul class="list-disc pl-5 space-y-1.5 text-slate-300">
+                            <li>Ensure this device has an active internet/cellular connection.</li>
+                            <li>Double check your API keys inside the code.</li>
+                            <li>Verify that your Firestore database is created in <strong>Native Mode</strong> rather than Datastore Mode.</li>
+                        </ul>
+                    </div>
                 `;
             }
+            
+            instructions.innerHTML = html;
+            banner.classList.remove('hidden');
+        }
+
+        function dismissDiagnostics() {
+            const banner = document.getElementById('diagnosticsBanner');
+            if (banner) banner.classList.add('hidden');
         }
 
         // --- FIRESTORE SUBSCRIPTIONS (RULE 1 & RULE 2) ---
@@ -504,6 +663,7 @@
 
                 renderTable();
                 renderOnCourseGrid();
+                renderStartMarshalRecentDepartures();
                 updateSummaryCounters();
             }, (err) => {
                 console.error("Firestore boats subscription error:", err);
@@ -696,6 +856,7 @@
             saveStateToLocalStorage();
             renderTable();
             renderOnCourseGrid();
+            renderStartMarshalRecentDepartures();
             updateSummaryCounters();
 
             // Background Cloud sync
@@ -760,6 +921,92 @@
             return `${minutes}:${seconds}.${tenths}`;
         }
 
+        // --- COOPERATIVE SPLIT-DEVICE SYSTEM ROLES UI LOGIC ---
+        function setStationRole(role) {
+            stationRole = role;
+            localStorage.setItem('regatta_station_role', role);
+
+            // Reset CSS styles of buttons
+            ['all', 'start', 'finish'].forEach(r => {
+                const btn = document.getElementById(`roleBtn_${r}`);
+                if (btn) {
+                    if (r === role) {
+                        btn.className = "flex-1 py-2.5 rounded-lg text-center transition duration-150 bg-blue-600 text-white shadow-md font-bold";
+                    } else {
+                        btn.className = "flex-1 py-2.5 rounded-lg text-center transition duration-150 text-slate-400 hover:text-slate-200 hover:bg-slate-900/40";
+                    }
+                }
+            });
+
+            const terminalCard = document.getElementById('terminalCard');
+            const onCourseCard = document.getElementById('onCourseCard');
+            const startMarshalRecentCard = document.getElementById('startMarshalRecentCard');
+            const startBtn = document.getElementById('recordStartBtn');
+            const finishBtn = document.getElementById('recordFinishBtn');
+            const actionGroup = document.getElementById('actionButtonsGroup');
+            const wipeBoardBtn = document.getElementById('wipeBoardBtn');
+
+            // Apply interactive rules based on chosen role
+            if (role === 'start') {
+                // START MARSHAL MODE
+                terminalCard.classList.remove('hidden');
+                onCourseCard.classList.add('hidden');
+                startMarshalRecentCard.classList.remove('hidden');
+                
+                startBtn.classList.remove('hidden');
+                startBtn.className = "col-span-2 py-5 bg-blue-600 hover:bg-blue-500 active:scale-95 transition rounded-xl font-black text-lg text-white shadow-lg shadow-blue-900/40 flex flex-col items-center justify-center gap-1";
+                
+                finishBtn.classList.add('hidden');
+                actionGroup.className = "grid grid-cols-1 gap-2 mt-2"; // Expand start target to full width
+                
+                wipeBoardBtn.classList.add('hidden'); // Protect results from accidental wipe at start line
+            } else if (role === 'finish') {
+                // FINISH MARSHAL MODE
+                terminalCard.classList.remove('hidden');
+                onCourseCard.classList.remove('hidden');
+                startMarshalRecentCard.classList.add('hidden');
+                
+                startBtn.classList.add('hidden');
+                
+                finishBtn.classList.remove('hidden');
+                finishBtn.className = "col-span-2 py-5 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-black text-lg text-white shadow-lg shadow-rose-900/40 flex flex-col items-center justify-center gap-1";
+                
+                actionGroup.className = "grid grid-cols-1 gap-2 mt-2"; // Expand finish target to full width
+                
+                wipeBoardBtn.classList.add('hidden'); // Protect results from accidental wipe at finish line
+            } else {
+                // ALL (DUAL / ADMIN MODE)
+                terminalCard.classList.remove('hidden');
+                onCourseCard.classList.remove('hidden');
+                startMarshalRecentCard.classList.add('hidden');
+                
+                startBtn.classList.remove('hidden');
+                startBtn.className = "py-4 bg-blue-600 hover:bg-blue-500 active:scale-95 transition rounded-xl font-bold text-base text-white shadow-lg shadow-blue-900/30 flex flex-col items-center justify-center gap-1";
+                
+                finishBtn.classList.remove('hidden');
+                finishBtn.className = "py-4 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-bold text-base text-white shadow-lg shadow-rose-900/30 flex flex-col items-center justify-center gap-1";
+                
+                actionGroup.className = "grid grid-cols-2 gap-4 mt-2";
+                
+                wipeBoardBtn.classList.remove('hidden');
+            }
+
+            renderOnCourseGrid();
+            renderStartMarshalRecentDepartures();
+        }
+
+        // Trigger action based on station role configuration when hitting Enter inside form
+        function triggerPrimaryAction() {
+            if (stationRole === 'start') {
+                recordAction('start');
+            } else if (stationRole === 'finish') {
+                recordAction('finish');
+            } else {
+                // Default to Start if dual/all
+                recordAction('start');
+            }
+        }
+
         // --- EVENT LOGGER/RECORDING OPERATIONS ---
         async function recordAction(type, targetBow = null) {
             playBeep();
@@ -816,6 +1063,7 @@
             saveStateToLocalStorage();
             renderTable();
             renderOnCourseGrid();
+            renderStartMarshalRecentDepartures();
             updateSummaryCounters();
 
             // Background Sync
@@ -830,7 +1078,7 @@
                 }
             }
 
-            // Quick cleanup of form fields
+            // Quick cleanup of form fields & refocus back on the numeric Bow input field
             if (!targetBow) {
                 if (bowInput) bowInput.value = '';
                 if (crewInput) crewInput.value = '';
@@ -860,6 +1108,9 @@
                 return;
             }
 
+            // CRITICAL HIERARCHY UX FIX: Sort by start time ascending.
+            // The boat on the water the longest (earliest departure) is placed top-left, 
+            // since it is logically most likely to cross the finish line next.
             onCourseBoats.sort((a, b) => a[1].startMs - b[1].startMs);
 
             onCourseBoats.forEach(([bow, data]) => {
@@ -874,6 +1125,42 @@
                     <div class="absolute inset-0 bg-rose-600/10 opacity-0 group-hover:opacity-100 transition duration-150 flex items-center justify-center text-[10px] font-extrabold text-rose-400 tracking-wider">TAP TO FINISH</div>
                 `;
                 container.appendChild(button);
+            });
+        }
+
+        // Renders the recently started boat queue for the Start Marshal's verify check
+        function renderStartMarshalRecentDepartures() {
+            const tbody = document.getElementById('recentDeparturesList');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            const startedBoats = Object.entries(state.boats).filter(([bow, data]) => {
+                return data.startMs !== null;
+            });
+
+            if (startedBoats.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="py-4 text-center text-slate-500">No departures logged yet.</td>
+                    </tr>`;
+                return;
+            }
+
+            // Sort by startMs descending (most recently departed first)
+            startedBoats.sort((a, b) => b[1].startMs - a[1].startMs);
+
+            // Slice out top 5 items for the widget queue
+            const topFive = startedBoats.slice(0, 5);
+
+            topFive.forEach(([bow, data]) => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-800/40 border-b border-slate-850 text-xs";
+                tr.innerHTML = `
+                    <td class="py-2.5 px-3 font-bold text-blue-400">#${bow}</td>
+                    <td class="py-2.5 px-3 text-slate-300 font-sans truncate max-w-[120px]">${data.crew}</td>
+                    <td class="py-2.5 px-3 text-slate-400 font-mono">${formatMsToTimeStr(data.startMs)}</td>
+                `;
+                tbody.appendChild(tr);
             });
         }
 
@@ -1045,6 +1332,7 @@
             saveStateToLocalStorage();
             renderTable();
             renderOnCourseGrid();
+            renderStartMarshalRecentDepartures();
             updateSummaryCounters();
 
             // Cloud Sync
@@ -1073,6 +1361,7 @@
             saveStateToLocalStorage();
             renderTable();
             renderOnCourseGrid();
+            renderStartMarshalRecentDepartures();
             updateSummaryCounters();
 
             // Cloud delete background
@@ -1102,6 +1391,7 @@
             saveStateToLocalStorage();
             renderTable();
             renderOnCourseGrid();
+            renderStartMarshalRecentDepartures();
             updateSummaryCounters();
 
             // Background Cloud sync
@@ -1170,6 +1460,9 @@
         window.exportCSV = exportCSV;
         window.renderTable = renderTable;
         window.focusNext = focusNext;
+        window.dismissDiagnostics = dismissDiagnostics;
+        window.setStationRole = setStationRole;
+        window.triggerPrimaryAction = triggerPrimaryAction;
     </script>
 </body>
 </html>
