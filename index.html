@@ -452,6 +452,9 @@
             } else if (status === 'local') {
                 indicator.className = "text-xs bg-amber-950 text-amber-400 px-2.5 py-1 rounded-full border border-amber-800 flex items-center gap-1";
                 indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 📶 Local Mode (Offline)`;
+            } else if (status === 'local_fallback') {
+                indicator.className = "text-xs bg-amber-950 text-amber-400 px-2.5 py-1 rounded-full border border-amber-800 flex items-center gap-1";
+                indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 📶 Sync Error (Running Locally)`;
             } else if (status === 'auth_failed') {
                 indicator.className = "text-xs bg-rose-950/90 text-rose-300 px-2.5 py-1.5 rounded-xl border border-rose-800/85 flex flex-col gap-0.5 items-start max-w-[260px]";
                 indicator.innerHTML = `
@@ -474,13 +477,19 @@
             onSnapshot(clockDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    state.masterStartTime = data.masterStartTime;
-                    state.elapsedOffset = data.elapsedOffset;
-                    state.isRunning = data.isRunning;
-                    manageLocalTimer();
+                    // Prevent resetting local clock loop if values are already updated locally
+                    if (state.masterStartTime !== data.masterStartTime || state.isRunning !== data.isRunning || state.elapsedOffset !== data.elapsedOffset) {
+                        state.masterStartTime = data.masterStartTime;
+                        state.elapsedOffset = data.elapsedOffset;
+                        state.isRunning = data.isRunning;
+                        manageLocalTimer();
+                    }
                 }
             }, (err) => {
                 console.error("Firestore clock subscription error:", err);
+                isCloudEnabled = false;
+                updateSyncStatus('local_fallback', err.message);
+                runLocalMode();
             });
 
             // 2. Boats synchronization
@@ -498,14 +507,14 @@
                 updateSummaryCounters();
             }, (err) => {
                 console.error("Firestore boats subscription error:", err);
+                isCloudEnabled = false;
+                updateSyncStatus('local_fallback', err.message);
             });
         }
 
         // --- LOCAL STORAGE STATE RETRIEVAL ---
         function saveStateToLocalStorage() {
-            if (!isCloudEnabled) {
-                localStorage.setItem('regatta_master_state', JSON.stringify(state));
-            }
+            localStorage.setItem('regatta_master_state', JSON.stringify(state));
         }
 
         function loadStateFromLocalStorage() {
@@ -598,8 +607,15 @@
                 nextOffset = Date.now() - (state.masterStartTime || Date.now());
             }
 
-            if (isCloudEnabled) {
-                if (!user) return;
+            // [LOCAL-FIRST UPGRADE]: Always update screen state instantly
+            state.isRunning = nextRunning;
+            state.masterStartTime = nextStartTime;
+            state.elapsedOffset = nextOffset;
+            manageLocalTimer();
+            saveStateToLocalStorage();
+
+            // Background Fire-and-Forget Cloud sync
+            if (isCloudEnabled && user) {
                 const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
                 try {
                     await setDoc(clockDocRef, {
@@ -608,14 +624,10 @@
                         isRunning: nextRunning
                     });
                 } catch (e) {
-                    console.error("Cloud clock sync error:", e);
+                    console.error("Cloud clock sync error. Falling back locally:", e);
+                    isCloudEnabled = false;
+                    updateSyncStatus('local_fallback', e.message);
                 }
-            } else {
-                state.isRunning = nextRunning;
-                state.masterStartTime = nextStartTime;
-                state.elapsedOffset = nextOffset;
-                manageLocalTimer();
-                saveStateToLocalStorage();
             }
         }
 
@@ -660,8 +672,34 @@
                 if (!confirmed) return;
             }
             
-            if (isCloudEnabled) {
-                if (!user) return;
+            const bowsToDelete = Object.keys(state.boats);
+
+            // Instant local state reset
+            clearInterval(timerInterval);
+            timerInterval = null;
+            state.isRunning = false;
+            state.masterStartTime = null;
+            state.elapsedOffset = 0;
+            state.boats = {};
+            
+            document.getElementById('masterClock').textContent = "00:00:00.0";
+            const btn = document.getElementById('toggleClockBtn');
+            if (btn) {
+                btn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg> Start Race Clock`;
+                btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
+            }
+            
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+
+            // Background Cloud sync
+            if (isCloudEnabled && user) {
                 try {
                     // Reset cloud clock config
                     const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
@@ -671,37 +709,16 @@
                         isRunning: false
                     });
 
-                    // Clear out existing cloud collection of boats (simple queries loop to satisfy Rule 2)
-                    const deletePromises = Object.keys(state.boats).map(bow => {
+                    // Clear out existing cloud collection of boats (Rule 2 simple queries)
+                    const deletePromises = bowsToDelete.map(bow => {
                         return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
                     });
                     await Promise.all(deletePromises);
                 } catch(e) {
-                    console.error("Cloud reset failed:", e);
+                    console.error("Cloud reset failed. Falling back locally:", e);
+                    isCloudEnabled = false;
+                    updateSyncStatus('local_fallback', e.message);
                 }
-            } else {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                state.isRunning = false;
-                state.masterStartTime = null;
-                state.elapsedOffset = 0;
-                state.boats = {};
-                
-                document.getElementById('masterClock').textContent = "00:00:00.0";
-                const btn = document.getElementById('toggleClockBtn');
-                if (btn) {
-                    btn.innerHTML = `
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg> Start Race Clock`;
-                    btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
-                }
-                
-                saveStateToLocalStorage();
-                renderTable();
-                renderOnCourseGrid();
-                updateSummaryCounters();
             }
         }
 
@@ -794,20 +811,23 @@
                 nextBoatData.finishMs = timestamp;
             }
 
-            if (isCloudEnabled) {
-                if (!user) return;
+            // Always commit state locally first for instant page update
+            state.boats[bow] = nextBoatData;
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+
+            // Background Sync
+            if (isCloudEnabled && user) {
                 try {
                     const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
                     await setDoc(boatDocRef, nextBoatData);
                 } catch (e) {
-                    console.error("Cloud boat update failed:", e);
+                    console.error("Cloud boat update failed. Running locally:", e);
+                    isCloudEnabled = false;
+                    updateSyncStatus('local_fallback', e.message);
                 }
-            } else {
-                state.boats[bow] = nextBoatData;
-                saveStateToLocalStorage();
-                renderTable();
-                renderOnCourseGrid();
-                updateSummaryCounters();
             }
 
             // Quick cleanup of form fields
@@ -1019,22 +1039,24 @@
                 penaltySeconds: penaltyVal
             };
 
-            if (isCloudEnabled) {
-                if (!user) return;
+            // Local updates
+            state.boats[bow] = updatedData;
+            closeEditModal();
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+
+            // Cloud Sync
+            if (isCloudEnabled && user) {
                 try {
                     const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
                     await setDoc(boatDocRef, updatedData);
-                    closeEditModal();
                 } catch (e) {
-                    console.error("Cloud boat edit save failed:", e);
+                    console.error("Cloud boat edit save failed. Locally saved:", e);
+                    isCloudEnabled = false;
+                    updateSyncStatus('local_fallback', e.message);
                 }
-            } else {
-                state.boats[bow] = updatedData;
-                closeEditModal();
-                saveStateToLocalStorage();
-                renderTable();
-                renderOnCourseGrid();
-                updateSummaryCounters();
             }
         }
 
@@ -1046,20 +1068,23 @@
             );
             if (!confirmed) return;
 
-            if (isCloudEnabled) {
-                if (!user) return;
+            // Local update first
+            delete state.boats[bow];
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+
+            // Cloud delete background
+            if (isCloudEnabled && user) {
                 try {
                     const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
                     await deleteDoc(boatDocRef);
                 } catch (e) {
                     console.error("Cloud boat deletion failed:", e);
+                    isCloudEnabled = false;
+                    updateSyncStatus('local_fallback', e.message);
                 }
-            } else {
-                delete state.boats[bow];
-                saveStateToLocalStorage();
-                renderTable();
-                renderOnCourseGrid();
-                updateSummaryCounters();
             }
         }
 
@@ -1070,22 +1095,27 @@
             );
             if (!confirmed) return;
 
-            if (isCloudEnabled) {
-                if (!user) return;
+            const bowsToDelete = Object.keys(state.boats);
+
+            // Local reset first
+            state.boats = {};
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+
+            // Background Cloud sync
+            if (isCloudEnabled && user) {
                 try {
-                    const deletePromises = Object.keys(state.boats).map(bow => {
+                    const deletePromises = bowsToDelete.map(bow => {
                         return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
                     });
                     await Promise.all(deletePromises);
                 } catch (e) {
                     console.error("Cloud wipe failure:", e);
+                    isCloudEnabled = false;
+                    updateSyncStatus('local_fallback', e.message);
                 }
-            } else {
-                state.boats = {};
-                saveStateToLocalStorage();
-                renderTable();
-                renderOnCourseGrid();
-                updateSummaryCounters();
             }
         }
 
