@@ -83,7 +83,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span><strong>Split-Location Timing Tip:</strong> Ensure both phones have "Set Time Automatically" enabled in iOS/Android settings. This keeps both devices GPS/NTP synchronized to within milliseconds. Admin accounts can be configured dynamically under Database Settings.</span>
+            <span><strong>Split-Location Timing Tip:</strong> Ensure both phones have "Set Time Automatically" enabled in iOS/Android settings. This keeps both devices GPS/NTP synchronized to within milliseconds. Admin accounts can be configured dynamically in your Firebase Authentication console.</span>
         </div>
 
         <!-- CLOUD DIAGNOSTICS ALERT BANNER (Hidden by default, reveals on sync errors) -->
@@ -231,7 +231,7 @@
             </div>
 
             <!-- "On Course" Quick-Tap Finishing Area -->
-            <div id="onCourseCard" class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col">
+            <div id="onCourseCard" class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-xl flex flex-col">
                 <div class="flex justify-between items-center mb-3">
                     <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
                         <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span> On Course Now
@@ -400,9 +400,9 @@
         </div>
     </div>
 
-    <!-- FLOATING MODAL FOR ADMIN LOGIN & DATABASE CONFIG ENTRY -->
+    <!-- FLOATING MODAL FOR ADMIN LOGIN (SECURED OPTION 3) -->
     <div id="loginModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
-        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-sm w-full max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-sm w-full space-y-4 shadow-2xl">
             <div class="flex justify-between items-center border-b border-slate-700 pb-3">
                 <h3 class="font-bold text-lg text-white">Admin Console</h3>
                 <button onclick="closeLoginModal()" class="text-slate-400 hover:text-white">
@@ -423,20 +423,6 @@
                     <input type="password" id="adminPasswordInput" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-medium text-sm focus:outline-none focus:border-blue-500" placeholder="••••••••">
                 </div>
                 <p id="loginErrorText" class="text-xs text-rose-400 hidden font-semibold">❌ Login failed. Check credentials.</p>
-            </div>
-
-            <!-- COLLAPSIBLE DATABASE CREDENTIALS FOR COMPLIANCE -->
-            <div class="border-t border-slate-700 pt-3">
-                <button onclick="toggleDbConfigSection()" class="w-full flex items-center justify-between text-xs text-slate-300 font-bold hover:text-white transition py-1">
-                    <span>🛠️ Database Credentials Vault</span>
-                    <span id="dbConfigCaret">▲</span>
-                </button>
-                <div id="dbConfigWrapper" class="space-y-2 mt-2">
-                    <p class="text-[10px] text-slate-400 leading-normal">Paste your web-app config JSON here. This configuration is stored exclusively on this device's private local memory and is never exposed in the public code repository.</p>
-                    <textarea id="dbConfigTextarea" placeholder='{"apiKey": "AIzaSy...", "authDomain": "..."}' class="w-full h-24 bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-emerald-400 font-mono focus:outline-none focus:border-blue-500"></textarea>
-                    <button onclick="saveDatabaseConfigDirectly()" class="w-full py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-bold transition">Save Connection Keys</button>
-                    <p id="dbSaveStatusText" class="text-[10px] text-emerald-400 font-medium hidden">✓ Stored securely on your device!</p>
-                </div>
             </div>
 
             <div class="flex gap-3 pt-2">
@@ -556,15 +542,6 @@
                 isAdminAuthenticated = true;
             }
             updateAdminStatusBadge();
-
-            // Populate the text configuration field if already stored on device
-            try {
-                const textArea = document.getElementById('dbConfigTextarea');
-                const storedValue = localStorage.getItem('regatta_firebase_config_direct');
-                if (textArea && storedValue) {
-                    textArea.value = storedValue;
-                }
-            } catch (e) {}
 
             // Restore saved station role selection
             const savedRole = localStorage.getItem('regatta_station_role');
@@ -710,7 +687,7 @@
 
             try {
                 if (!isCloudEnabled) {
-                    throw new Error("No database settings configured. Please paste your dynamic profiles in the credentials panel below.");
+                    throw new Error("No database settings configured.");
                 }
                 // Sign in using email/password.
                 await signInWithEmailAndPassword(auth, email, password);
@@ -873,43 +850,6 @@
             } else {
                 // Default to Start if dual/all
                 recordAction('start');
-            }
-        }
-
-        // --- COOPERATIVE SECURE DEVICE CONFIGURATION STORAGE ---
-        function toggleDbConfigSection() {
-            const wrapper = document.getElementById('dbConfigWrapper');
-            const caret = document.getElementById('dbConfigCaret');
-            if (wrapper.classList.contains('hidden')) {
-                wrapper.classList.remove('hidden');
-                caret.textContent = "▲";
-            } else {
-                wrapper.classList.add('hidden');
-                caret.textContent = "▼";
-            }
-        }
-
-        function saveDatabaseConfigDirectly() {
-            const value = document.getElementById('dbConfigTextarea').value.trim();
-            const statusLabel = document.getElementById('dbSaveStatusText');
-            
-            try {
-                if (value === "") {
-                    localStorage.removeItem('regatta_firebase_config_direct');
-                    statusLabel.textContent = "✓ Local storage configuration erased.";
-                    statusLabel.classList.remove('hidden');
-                    return;
-                }
-                
-                // Validate payload is a parseable JSON block
-                JSON.parse(value);
-                localStorage.setItem('regatta_firebase_config_direct', value);
-                
-                statusLabel.textContent = "✓ Stored! Please refresh the page to apply connection.";
-                statusLabel.classList.remove('hidden');
-                playBeep();
-            } catch (e) {
-                alert("Incorrect Format: Please ensure you are pasting a valid JSON object starting and ending with braces.");
             }
         }
 
@@ -1773,8 +1713,6 @@ service cloud.firestore {
         window.closeLoginModal = closeLoginModal;
         window.toggleAdminLockState = toggleAdminLockState;
         window.changeDistance = changeDistance;
-        window.toggleDbConfigSection = toggleDbConfigSection;
-        window.saveDatabaseConfigDirectly = saveDatabaseConfigDirectly;
     </script>
 </body>
 </html>
