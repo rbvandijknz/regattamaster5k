@@ -140,7 +140,7 @@
                 </button>
                 <button onclick="resetClockWithWarning()" class="px-4 py-3 bg-slate-700 hover:bg-slate-600 active:scale-95 transition rounded-xl font-semibold text-sm text-slate-300 hover:text-white flex items-center justify-center gap-1">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21(8)H18" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.218H18" />
                     </svg>
                     Reset
                 </button>
@@ -1245,6 +1245,45 @@ service cloud.firestore {
                     }
                 }
             });
+        }
+
+        function getCurrentElapsedMs() {
+            if (!state.isRunning) return state.elapsedOffset;
+            return Date.now() - state.masterStartTime;
+        }
+
+        // --- TIMING FORMATTING UTILS ---
+        function formatMsToTimeStr(ms) {
+            if (ms === null || ms === undefined || isNaN(ms)) return "--:--:--.-";
+            let tenths = Math.floor((ms % 1000) / 100);
+            let seconds = Math.floor((ms / 1000) % 60);
+            let minutes = Math.floor((ms / (1000 * 60)) % 60);
+            let hours = Math.floor((ms / (1000 * 60 * 60)) % 24);
+
+            hours = (hours < 10) ? "0" + hours : hours;
+            minutes = (minutes < 10) ? "0" + minutes : minutes;
+            seconds = (seconds < 10) ? "0" + seconds : seconds;
+
+            return `${hours}:${minutes}:${seconds}.${tenths}`;
+        }
+
+        function calculatePace(netMs) {
+            if (!netMs || netMs <= 0) return "--:--.-";
+            const distance = state.raceDistance || 5000;
+            const segments = distance / 500;
+            const paceMs = netMs / segments;
+            let tenths = Math.floor((paceMs % 1000) / 100);
+            let seconds = Math.floor((paceMs / 1000) % 60);
+            let minutes = Math.floor((paceMs / (1000 * 60)) % 60);
+
+            seconds = (seconds < 10) ? "0" + seconds : seconds;
+            return `${minutes}:${seconds}.${tenths}`;
+        }
+
+        function updateMasterClockDisplay() {
+            const totalMs = getCurrentElapsedMs();
+            document.getElementById('masterClock').textContent = formatMsToTimeStr(totalMs);
+            updateOnCourseTimers();
         }
 
         // --- EVENT LOGGER/RECORDING OPERATIONS ---
