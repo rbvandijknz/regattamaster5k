@@ -349,9 +349,25 @@
         const DEPLOYED_APP_ID = "regattamaster5k";
 
         // --- GLOBAL ENVIRONMENT INITS ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : DEPLOYED_APP_ID;
-        const rawFirebaseConfig = typeof __firebase_config !== 'undefined' ? __firebase_config : (DEPLOYED_FIREBASE_CONFIG ? JSON.stringify(DEPLOYED_FIREBASE_CONFIG) : null);
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const appId = typeof __app_id !== 'undefined' && __app_id ? __app_id : DEPLOYED_APP_ID;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' && __initial_auth_token ? __initial_auth_token : null;
+        
+        // Safely parse the environment configuration if it exists and is a valid JSON string
+        let resolvedConfig = null;
+        if (typeof __firebase_config !== 'undefined' && __firebase_config && typeof __firebase_config === 'string' && __firebase_config.trim() !== '') {
+            try {
+                resolvedConfig = JSON.parse(__firebase_config);
+            } catch (e) {
+                console.warn("Failed to parse environment __firebase_config:", e);
+            }
+        } else if (typeof __firebase_config !== 'undefined' && __firebase_config && typeof __firebase_config === 'object') {
+            resolvedConfig = __firebase_config;
+        }
+
+        // Fall back to hardcoded custom credentials if environment configuration is invalid/empty
+        if (!resolvedConfig && DEPLOYED_FIREBASE_CONFIG) {
+            resolvedConfig = DEPLOYED_FIREBASE_CONFIG;
+        }
 
         let db = null;
         let auth = null;
@@ -369,10 +385,9 @@
         let timerInterval = null;
 
         // --- BOOTSTRAP FIREBASE / LOCAL MODE ---
-        if (rawFirebaseConfig) {
+        if (resolvedConfig) {
             try {
-                const firebaseConfig = JSON.parse(rawFirebaseConfig);
-                const app = initializeApp(firebaseConfig);
+                const app = initializeApp(resolvedConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
                 isCloudEnabled = true;
@@ -393,7 +408,7 @@
                     }
                 } catch (e) {
                     console.error("Auth failed, falling back to local mode:", e);
-                    updateSyncStatus('local');
+                    updateSyncStatus('auth_failed', e.message);
                     runLocalMode();
                     return;
                 }
@@ -425,7 +440,7 @@
         }
 
         // --- SYNC STATUS PANEL BADGES ---
-        function updateSyncStatus(status) {
+        function updateSyncStatus(status, errorMsg = '') {
             const indicator = document.getElementById('syncIndicator');
             if (!indicator) return;
             if (status === 'connected') {
@@ -437,6 +452,15 @@
             } else if (status === 'local') {
                 indicator.className = "text-xs bg-amber-950 text-amber-400 px-2.5 py-1 rounded-full border border-amber-800 flex items-center gap-1";
                 indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 📶 Local Mode (Offline)`;
+            } else if (status === 'auth_failed') {
+                indicator.className = "text-xs bg-rose-950/90 text-rose-300 px-2.5 py-1.5 rounded-xl border border-rose-800/85 flex flex-col gap-0.5 items-start max-w-[260px]";
+                indicator.innerHTML = `
+                    <div class="flex items-center gap-1 font-semibold text-rose-200">
+                        <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> 
+                        <span>Offline (Auth Failed)</span>
+                    </div>
+                    <p class="text-[9px] leading-snug opacity-90">Please enable 'Anonymous Sign-In' inside your Firebase Authentication settings.</p>
+                `;
             }
         }
 
@@ -595,6 +619,7 @@
             }
         }
 
+        // Manage Local timer execution
         function manageLocalTimer() {
             if (state.isRunning && state.masterStartTime) {
                 if (!timerInterval) {
@@ -706,6 +731,7 @@
             return `${hours}:${minutes}:${seconds}.${tenths}`;
         }
 
+        // Convert 500m split pace calculation
         function calculatePace(netMs) {
             if (!netMs || netMs <= 0) return "--:--.-";
             const paceMs = netMs / 10;
