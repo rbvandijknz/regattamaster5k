@@ -48,8 +48,8 @@
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <span id="saveStatus" class="text-xs bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-800 flex items-center gap-1">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Auto-Saved
+                <span id="syncIndicator" class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse"></span> Connecting Sync...
                 </span>
             </div>
         </div>
@@ -312,47 +312,176 @@
         </div>
     </div>
 
+    <!-- CUSTOM DIALOG MODAL (Saves from standard alert/confirm sandbox failures) -->
+    <div id="customDialog" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <h3 id="dialogTitle" class="font-bold text-lg text-white">Confirmation</h3>
+            <p id="dialogMessage" class="text-sm text-slate-300">Are you sure?</p>
+            <div class="flex gap-3 justify-end pt-2">
+                <button id="dialogCancelBtn" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-200">Cancel</button>
+                <button id="dialogConfirmBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-white">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <!-- AUDIO FEEDBACK FOR ACCURATE TIMING Confirmation -->
     <audio id="beepSound" src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==A" preload="auto"></audio>
 
-    <script>
-        // --- CONSTANTS & CONFIGURATION ---
-        const DISTANCE_METERS = 5000;
+    <!-- FIREBASE AND CORE TIMING MODULE -->
+    <script type="module">
+        // Import Firebase JS modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // =========================================================================
+        // DEPLOYMENT CONFIG: Activated using your provided Firebase details!
+        // =========================================================================
+        const DEPLOYED_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyCRStnRBd9DUToMS2B0yICDSX-lB6qoLSg",
+            authDomain: "regattamaster5k.firebaseapp.com",
+            projectId: "regattamaster5k",
+            storageBucket: "regattamaster5k.firebasestorage.app",
+            messagingSenderId: "491854422703",
+            appId: "1:491854422703:web:709cda99d26b5a87b96a5a",
+            measurementId: "G-K43QTHQ7HV"
+        };
+        const DEPLOYED_APP_ID = "regattamaster5k";
+
+        // --- GLOBAL ENVIRONMENT INITS ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : DEPLOYED_APP_ID;
+        const rawFirebaseConfig = typeof __firebase_config !== 'undefined' ? __firebase_config : (DEPLOYED_FIREBASE_CONFIG ? JSON.stringify(DEPLOYED_FIREBASE_CONFIG) : null);
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db = null;
+        let auth = null;
+        let user = null;
+        let isCloudEnabled = false;
 
         // --- CORE APPLICATION STATE ---
         let state = {
-            masterStartTime: null,    // Absolute Epoch Ms when Master Clock started
-            elapsedOffset: 0,         // To resume paused states or support manually configured start offset
+            masterStartTime: null,
+            elapsedOffset: 0,
             isRunning: false,
-            boats: {}                 // Key: Bow #, Value: { crew, category, startMs, finishMs, penaltySeconds }
+            boats: {}
         };
 
         let timerInterval = null;
 
-        // --- LIFE CYCLE: ON WINDOW LOAD ---
-        window.onload = function() {
-            loadStateFromLocalStorage();
-            if (state.isRunning && state.masterStartTime) {
-                // Resume running timer
-                timerInterval = setInterval(updateMasterClockDisplay, 100);
-                document.getElementById('toggleClockBtn').innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg> Stop / Pause`;
-                document.getElementById('toggleClockBtn').className = "flex-1 md:flex-none px-6 py-3 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30";
+        // --- BOOTSTRAP FIREBASE / LOCAL MODE ---
+        if (rawFirebaseConfig) {
+            try {
+                const firebaseConfig = JSON.parse(rawFirebaseConfig);
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                isCloudEnabled = true;
+            } catch (e) {
+                console.error("Firebase init failed, running locally:", e);
             }
-            updateMasterClockDisplay();
+        }
+
+        window.onload = async function() {
+            if (isCloudEnabled) {
+                updateSyncStatus('connecting');
+                // Rule 3: Auth Before Queries
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (e) {
+                    console.error("Auth failed, falling back to local mode:", e);
+                    updateSyncStatus('local');
+                    runLocalMode();
+                    return;
+                }
+
+                // Track authentication
+                onAuthStateChanged(auth, (usr) => {
+                    user = usr;
+                    if (usr) {
+                        updateSyncStatus('connected');
+                        setupCloudSync();
+                    } else {
+                        updateSyncStatus('local');
+                        runLocalMode();
+                    }
+                });
+            } else {
+                updateSyncStatus('local');
+                runLocalMode();
+            }
+        };
+
+        // Fallback local mode loads local storage state
+        function runLocalMode() {
+            loadStateFromLocalStorage();
+            manageLocalTimer();
             renderTable();
             renderOnCourseGrid();
             updateSummaryCounters();
-        };
+        }
 
-        // --- LOCAL STORAGE HELPERS ---
+        // --- SYNC STATUS PANEL BADGES ---
+        function updateSyncStatus(status) {
+            const indicator = document.getElementById('syncIndicator');
+            if (!indicator) return;
+            if (status === 'connected') {
+                indicator.className = "text-xs bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-800 flex items-center gap-1";
+                indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ☁️ Cloud Active`;
+            } else if (status === 'connecting') {
+                indicator.className = "text-xs bg-sky-950 text-sky-400 px-2.5 py-1 rounded-full border border-sky-800 flex items-center gap-1";
+                indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span> Connecting Cloud...`;
+            } else if (status === 'local') {
+                indicator.className = "text-xs bg-amber-950 text-amber-400 px-2.5 py-1 rounded-full border border-amber-800 flex items-center gap-1";
+                indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 📶 Local Mode (Offline)`;
+            }
+        }
+
+        // --- FIRESTORE SUBSCRIPTIONS (RULE 1 & RULE 2) ---
+        function setupCloudSync() {
+            if (!user) return;
+
+            // 1. Clock state config subscription
+            // Public path pattern: /artifacts/{appId}/public/data/clockState/config
+            const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
+            onSnapshot(clockDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    state.masterStartTime = data.masterStartTime;
+                    state.elapsedOffset = data.elapsedOffset;
+                    state.isRunning = data.isRunning;
+                    manageLocalTimer();
+                }
+            }, (err) => {
+                console.error("Firestore clock subscription error:", err);
+            });
+
+            // 2. Boats synchronization
+            // Public path pattern: /artifacts/{appId}/public/data/boats
+            const boatsColRef = collection(db, 'artifacts', appId, 'public', 'data', 'boats');
+            onSnapshot(boatsColRef, (querySnapshot) => {
+                const updatedBoats = {};
+                querySnapshot.forEach((doc) => {
+                    updatedBoats[doc.id] = doc.data();
+                });
+                state.boats = updatedBoats;
+
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }, (err) => {
+                console.error("Firestore boats subscription error:", err);
+            });
+        }
+
+        // --- LOCAL STORAGE STATE RETRIEVAL ---
         function saveStateToLocalStorage() {
-            localStorage.setItem('regatta_master_state', JSON.stringify(state));
-            const saveStatusEl = document.getElementById('saveStatus');
-            saveStatusEl.classList.remove('opacity-50');
-            setTimeout(() => saveStatusEl.classList.add('opacity-50'), 1500);
+            if (!isCloudEnabled) {
+                localStorage.setItem('regatta_master_state', JSON.stringify(state));
+            }
         }
 
         function loadStateFromLocalStorage() {
@@ -360,21 +489,60 @@
             if (data) {
                 try {
                     const parsed = JSON.parse(data);
-                    // Standardize keys
                     state.masterStartTime = parsed.masterStartTime || null;
                     state.elapsedOffset = parsed.elapsedOffset || 0;
                     state.isRunning = parsed.isRunning || false;
                     state.boats = parsed.boats || {};
                 } catch(e) {
-                    console.error("Failed to restore saved timing state, starting fresh.", e);
+                    console.error("Failed to restore local storage state", e);
                 }
             }
         }
 
-        // --- AUDITORY TAP FEEDBACK ---
+        // --- SEAMLESS EMBED CONFIRMATIONS (Rule: No Browser Alerts/Confirms) ---
+        function showConfirm(title, message) {
+            return new Promise((resolve) => {
+                document.getElementById('dialogTitle').textContent = title;
+                document.getElementById('dialogMessage').textContent = message;
+                document.getElementById('dialogCancelBtn').classList.remove('hidden');
+                
+                const confirmBtn = document.getElementById('dialogConfirmBtn');
+                const cancelBtn = document.getElementById('dialogCancelBtn');
+                
+                confirmBtn.onclick = () => {
+                    document.getElementById('customDialog').classList.add('hidden');
+                    resolve(true);
+                };
+                
+                cancelBtn.onclick = () => {
+                    document.getElementById('customDialog').classList.add('hidden');
+                    resolve(false);
+                };
+                
+                document.getElementById('customDialog').classList.remove('hidden');
+            });
+        }
+
+        function showAlert(title, message) {
+            return new Promise((resolve) => {
+                document.getElementById('dialogTitle').textContent = title;
+                document.getElementById('dialogMessage').textContent = message;
+                document.getElementById('dialogCancelBtn').classList.add('hidden'); // Hide cancel button
+                
+                const confirmBtn = document.getElementById('dialogConfirmBtn');
+                
+                confirmBtn.onclick = () => {
+                    document.getElementById('customDialog').classList.add('hidden');
+                    resolve(true);
+                };
+                
+                document.getElementById('customDialog').classList.remove('hidden');
+            });
+        }
+
+        // --- AUDITORY FEEDBACK ---
         function playBeep() {
             try {
-                // Generate synth beep programmatically to ensure instant touch-to-sound action without network assets
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 const gainNode = audioCtx.createGain();
@@ -383,76 +551,133 @@
                 gainNode.connect(audioCtx.destination);
                 
                 oscillator.type = 'sine';
-                oscillator.frequency.value = 1200; // high pitched fast beep
+                oscillator.frequency.value = 1200;
                 gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
                 
                 oscillator.start();
                 gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.1);
                 oscillator.stop(audioCtx.currentTime + 0.1);
-            } catch(e) {
-                // Browser might prevent play without initial interaction, fail silently
-            }
+            } catch(e) {}
         }
 
-        // --- MASTER CLOCK OPERATIONS ---
-        function toggleClock() {
+        // --- MASTER CLOCK LOOP CONTROL ---
+        async function toggleClock() {
             playBeep();
-            if (!state.isRunning) {
-                // START
-                state.isRunning = true;
-                state.masterStartTime = Date.now() - state.elapsedOffset;
-                timerInterval = setInterval(updateMasterClockDisplay, 100);
-                
-                const btn = document.getElementById('toggleClockBtn');
-                btn.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg> Stop / Pause`;
-                btn.className = "flex-1 md:flex-none px-6 py-3 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30";
+            
+            let nextRunning = !state.isRunning;
+            let nextStartTime = state.masterStartTime;
+            let nextOffset = state.elapsedOffset;
+
+            if (nextRunning) {
+                nextStartTime = Date.now() - nextOffset;
             } else {
-                // PAUSE
-                state.isRunning = false;
-                state.elapsedOffset = Date.now() - state.masterStartTime;
-                clearInterval(timerInterval);
-                
-                const btn = document.getElementById('toggleClockBtn');
-                btn.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg> Resume Clock`;
-                btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
+                nextOffset = Date.now() - (state.masterStartTime || Date.now());
             }
-            saveStateToLocalStorage();
+
+            if (isCloudEnabled) {
+                if (!user) return;
+                const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
+                try {
+                    await setDoc(clockDocRef, {
+                        masterStartTime: nextStartTime,
+                        elapsedOffset: nextOffset,
+                        isRunning: nextRunning
+                    });
+                } catch (e) {
+                    console.error("Cloud clock sync error:", e);
+                }
+            } else {
+                state.isRunning = nextRunning;
+                state.masterStartTime = nextStartTime;
+                state.elapsedOffset = nextOffset;
+                manageLocalTimer();
+                saveStateToLocalStorage();
+            }
         }
 
-        function resetClockWithWarning() {
-            if (Object.keys(state.boats).length > 0) {
-                if (!confirm("WARNING: resetting the clock will wipe out all boat recordings & standings on course. Are you sure you want to continue?")) {
-                    return;
+        function manageLocalTimer() {
+            if (state.isRunning && state.masterStartTime) {
+                if (!timerInterval) {
+                    timerInterval = setInterval(updateMasterClockDisplay, 100);
                 }
+                const btn = document.getElementById('toggleClockBtn');
+                if (btn) {
+                    btn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg> Stop / Pause`;
+                    btn.className = "flex-1 md:flex-none px-6 py-3 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30";
+                }
+            } else {
+                if (timerInterval) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                }
+                const btn = document.getElementById('toggleClockBtn');
+                if (btn) {
+                    btn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg> Resume Clock`;
+                    btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
+                }
+                updateMasterClockDisplay();
+            }
+        }
+
+        async function resetClockWithWarning() {
+            if (Object.keys(state.boats).length > 0) {
+                const confirmed = await showConfirm(
+                    "Warning: Clock Reset", 
+                    "Are you sure you want to completely reset the clock? This will delete all course standings."
+                );
+                if (!confirmed) return;
             }
             
-            clearInterval(timerInterval);
-            state.isRunning = false;
-            state.masterStartTime = null;
-            state.elapsedOffset = 0;
-            state.boats = {};
-            
-            // UI Reset
-            document.getElementById('masterClock').textContent = "00:00:00.0";
-            const btn = document.getElementById('toggleClockBtn');
-            btn.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg> Start Race Clock`;
-            btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
-            
-            saveStateToLocalStorage();
-            renderTable();
-            renderOnCourseGrid();
-            updateSummaryCounters();
+            if (isCloudEnabled) {
+                if (!user) return;
+                try {
+                    // Reset cloud clock config
+                    const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
+                    await setDoc(clockDocRef, {
+                        masterStartTime: null,
+                        elapsedOffset: 0,
+                        isRunning: false
+                    });
+
+                    // Clear out existing cloud collection of boats (simple queries loop to satisfy Rule 2)
+                    const deletePromises = Object.keys(state.boats).map(bow => {
+                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
+                    });
+                    await Promise.all(deletePromises);
+                } catch(e) {
+                    console.error("Cloud reset failed:", e);
+                }
+            } else {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                state.isRunning = false;
+                state.masterStartTime = null;
+                state.elapsedOffset = 0;
+                state.boats = {};
+                
+                document.getElementById('masterClock').textContent = "00:00:00.0";
+                const btn = document.getElementById('toggleClockBtn');
+                if (btn) {
+                    btn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg> Start Race Clock`;
+                    btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
+                }
+                
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }
         }
 
         function getCurrentElapsedMs() {
@@ -463,12 +688,10 @@
         function updateMasterClockDisplay() {
             const totalMs = getCurrentElapsedMs();
             document.getElementById('masterClock').textContent = formatMsToTimeStr(totalMs);
-            
-            // Also continuously redraw any dynamic elapsed times in "On Course" widgets
             updateOnCourseTimers();
         }
 
-        // --- TIME FORMATTING UTILITIES ---
+        // --- TIMING FORMATTING UTILS ---
         function formatMsToTimeStr(ms) {
             if (ms === null || ms === undefined || isNaN(ms)) return "--:--:--.-";
             let tenths = Math.floor((ms % 1000) / 100);
@@ -483,10 +706,8 @@
             return `${hours}:${minutes}:${seconds}.${tenths}`;
         }
 
-        // Convert 500m split pace calculation
         function calculatePace(netMs) {
             if (!netMs || netMs <= 0) return "--:--.-";
-            // 5K is 5000m. Pace is time per 500m. Total split parts = 5000/500 = 10 parts
             const paceMs = netMs / 10;
             let tenths = Math.floor((paceMs % 1000) / 100);
             let seconds = Math.floor((paceMs / 1000) % 60);
@@ -496,12 +717,12 @@
             return `${minutes}:${seconds}.${tenths}`;
         }
 
-        // --- ACTION RECORDER FOR BOAT TIMINGS ---
-        function recordAction(type, targetBow = null) {
+        // --- EVENT LOGGER/RECORDING OPERATIONS ---
+        async function recordAction(type, targetBow = null) {
             playBeep();
             
             if (!state.masterStartTime && !state.elapsedOffset) {
-                alert("Clock Error: Please start the Master Clock first before timing individual boats.");
+                await showAlert("Missing Clock", "Please start the Master Clock before timing individual boats.");
                 return;
             }
 
@@ -512,54 +733,70 @@
 
             const bow = (targetBow || bowInput.value).trim();
             if (!bow) {
-                alert("Incomplete Data: Please input or select a Bow number.");
+                await showAlert("Missing Data", "Please input a valid Bow number first.");
                 return;
             }
 
             const timestamp = getCurrentElapsedMs();
+            let targetBoat = state.boats[bow];
 
-            if (!state.boats[bow]) {
-                const defaultCrew = crewInput.value.trim() || `Bow ${bow}`;
-                state.boats[bow] = {
-                    crew: defaultCrew,
-                    category: categoryInput.value,
-                    startMs: null,
-                    finishMs: null,
-                    penaltySeconds: parseInt(penaltyInput.value) || 0
-                };
-            }
+            let nextBoatData = targetBoat ? { ...targetBoat } : {
+                crew: (crewInput ? crewInput.value.trim() : '') || `Bow ${bow}`,
+                category: categoryInput ? categoryInput.value : "Men's 1x",
+                startMs: null,
+                finishMs: null,
+                penaltySeconds: penaltyInput ? parseInt(penaltyInput.value) || 0 : 0
+            };
 
             if (type === 'start') {
-                if (state.boats[bow].startMs !== null) {
-                    if (!confirm(`Overwrite Alert: Bow ${bow} already has a logged start time. Replace it?`)) return;
+                if (nextBoatData.startMs !== null) {
+                    const confirmOverwrite = await showConfirm(
+                        "Overwrite Warning", 
+                        `Bow #${bow} already has a logged start time. Replace it?`
+                    );
+                    if (!confirmOverwrite) return;
                 }
-                state.boats[bow].startMs = timestamp;
+                nextBoatData.startMs = timestamp;
             } else if (type === 'finish') {
-                if (state.boats[bow].startMs === null) {
-                    if (!confirm(`Warning: Bow ${bow} does not have a recorded start time. Register finish timestamp anyway?`)) return;
+                if (nextBoatData.startMs === null) {
+                    const confirmFinish = await showConfirm(
+                        "Out of Order", 
+                        `Bow #${bow} is crossing the finish without a registered start time. Record anyway?`
+                    );
+                    if (!confirmFinish) return;
                 }
-                state.boats[bow].finishMs = timestamp;
+                nextBoatData.finishMs = timestamp;
             }
 
-            // Clean inputs for rapid queue flow
+            if (isCloudEnabled) {
+                if (!user) return;
+                try {
+                    const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
+                    await setDoc(boatDocRef, nextBoatData);
+                } catch (e) {
+                    console.error("Cloud boat update failed:", e);
+                }
+            } else {
+                state.boats[bow] = nextBoatData;
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }
+
+            // Quick cleanup of form fields
             if (!targetBow) {
-                bowInput.value = '';
-                crewInput.value = '';
-                penaltyInput.value = '0';
-                bowInput.focus();
+                if (bowInput) bowInput.value = '';
+                if (crewInput) crewInput.value = '';
+                if (penaltyInput) penaltyInput.value = '0';
+                if (bowInput) bowInput.focus();
             }
-
-            saveStateToLocalStorage();
-            renderTable();
-            renderOnCourseGrid();
-            updateSummaryCounters();
         }
 
-        // --- INTERACTIVE COMPONENTS ---
-        
-        // Render "On Course" Quick-Tap finishing cells
+        // --- DYNAMIC RENDERING INTERACTIVE GRID ---
         function renderOnCourseGrid() {
             const container = document.getElementById('onCourseGrid');
+            if (!container) return;
             container.innerHTML = '';
 
             const onCourseBoats = Object.entries(state.boats).filter(([bow, data]) => {
@@ -577,7 +814,6 @@
                 return;
             }
 
-            // Sort by start index ascending so earliest starting boats show first
             onCourseBoats.sort((a, b) => a[1].startMs - b[1].startMs);
 
             onCourseBoats.forEach(([bow, data]) => {
@@ -595,7 +831,6 @@
             });
         }
 
-        // Continuous polling update for active racing timers inside the dashboard widgets
         function updateOnCourseTimers() {
             const now = getCurrentElapsedMs();
             const elements = document.querySelectorAll('.dynamic-elapsed');
@@ -621,17 +856,16 @@
             });
         }
 
-        // --- RENDER CLASSIFIED STANDINGS TABLE ---
+        // --- RENDER TABLE AND STANDINGS ---
         function renderTable() {
             const tbody = document.getElementById('resultsTableBody');
+            if (!tbody) return;
             const searchVal = document.getElementById('searchTable').value.toLowerCase().trim();
             const emptyState = document.getElementById('tableEmptyState');
             tbody.innerHTML = '';
 
             let hasMatches = false;
 
-            // Sort all recorded boats. Finished boats with verified elapsed net times sort highest.
-            // Active racing boats display below finished competitors.
             const sortedBows = Object.keys(state.boats).sort((a, b) => {
                 const bA = state.boats[a];
                 const bB = state.boats[b];
@@ -642,7 +876,6 @@
                 if (netA === Infinity && netB !== Infinity) return 1;
                 if (netB === Infinity && netA !== Infinity) return -1;
                 if (netA === Infinity && netB === Infinity) {
-                    // Both started but unfished, sort by start time descending (newest start first)
                     return (bB.startMs || 0) - (bA.startMs || 0);
                 }
                 return netA - netB;
@@ -651,14 +884,11 @@
             sortedBows.forEach(bow => {
                 const data = state.boats[bow];
                 
-                // Query Filters
                 const crewNameMatch = data.crew.toLowerCase().includes(searchVal);
                 const bowMatch = bow.includes(searchVal);
                 const categoryMatch = (data.category || '').toLowerCase().includes(searchVal);
 
-                if (searchVal && !crewNameMatch && !bowMatch && !categoryMatch) {
-                    return; // Skip non-matching rows
-                }
+                if (searchVal && !crewNameMatch && !bowMatch && !categoryMatch) return;
 
                 hasMatches = true;
 
@@ -670,7 +900,7 @@
                 const paceStr = hasFinished ? calculatePace(totalNetMs) : "--:--.-";
 
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-750 transition duration-150";
+                tr.className = "hover:bg-slate-750 transition duration-150 border-b border-slate-700/60";
                 tr.innerHTML = `
                     <td class="py-3 px-4 font-bold text-white text-base digital-font">#${bow}</td>
                     <td class="py-3 px-4">
@@ -709,46 +939,24 @@
             }
         }
 
-        // --- DASHBOARD COUNTERS ---
+        // --- UPDATE STATISTICAL OVERVIEWS ---
         function updateSummaryCounters() {
             const total = Object.keys(state.boats).length;
             const racing = Object.values(state.boats).filter(b => b.startMs !== null && b.finishMs === null).length;
             const finished = Object.values(state.boats).filter(b => b.startMs !== null && b.finishMs !== null).length;
 
-            document.getElementById('statTotal').textContent = total;
-            document.getElementById('statRacing').textContent = racing;
-            document.getElementById('statFinished').textContent = finished;
-            document.getElementById('activeCount').textContent = `${racing} Boat${racing !== 1 ? 's' : ''}`;
+            const statTotal = document.getElementById('statTotal');
+            const statRacing = document.getElementById('statRacing');
+            const statFinished = document.getElementById('statFinished');
+            const activeCount = document.getElementById('activeCount');
+
+            if (statTotal) statTotal.textContent = total;
+            if (statRacing) statRacing.textContent = racing;
+            if (statFinished) statFinished.textContent = finished;
+            if (activeCount) activeCount.textContent = `${racing} Boat${racing !== 1 ? 's' : ''}`;
         }
 
-        // --- FOCUS NAVIGATION UTILITY ---
-        function focusNext(id) {
-            document.getElementById(id).focus();
-        }
-
-        // --- WIPE OUT ALL LOGS ---
-        function clearAllData() {
-            if (confirm("Are you sure you want to completely erase the entire race logs? This cannot be undone!")) {
-                state.boats = {};
-                saveStateToLocalStorage();
-                renderTable();
-                renderOnCourseGrid();
-                updateSummaryCounters();
-            }
-        }
-
-        // --- TRASH AN INDIVIDUAL ENTRY ---
-        function deleteBoatWithWarning(bow) {
-            if (confirm(`Do you want to delete Bow #${bow} entirely from the records?`)) {
-                delete state.boats[bow];
-                saveStateToLocalStorage();
-                renderTable();
-                renderOnCourseGrid();
-                updateSummaryCounters();
-            }
-        }
-
-        // --- HANDY MANUAL ADJUSTMENTS MODAL ---
+        // --- EDITING DETAILS MODALS ---
         function openEditModal(bow) {
             const data = state.boats[bow];
             if (!data) return;
@@ -767,7 +975,7 @@
             document.getElementById('editModal').classList.add('hidden');
         }
 
-        function saveEditDetails() {
+        async function saveEditDetails() {
             const bow = document.getElementById('editBowId').value;
             if (!state.boats[bow]) return;
 
@@ -777,24 +985,88 @@
             const finishVal = parseFloat(document.getElementById('editFinishSec').value);
             const penaltyVal = parseInt(document.getElementById('editPenalty').value) || 0;
 
-            state.boats[bow].crew = crew || `Bow ${bow}`;
-            state.boats[bow].category = category;
-            state.boats[bow].startMs = !isNaN(startVal) ? Math.round(startVal * 1000) : null;
-            state.boats[bow].finishMs = !isNaN(finishVal) ? Math.round(finishVal * 1000) : null;
-            state.boats[bow].penaltySeconds = penaltyVal;
+            const updatedData = {
+                crew: crew || `Bow ${bow}`,
+                category: category,
+                startMs: !isNaN(startVal) ? Math.round(startVal * 1000) : null,
+                finishMs: !isNaN(finishVal) ? Math.round(finishVal * 1000) : null,
+                penaltySeconds: penaltyVal
+            };
 
-            closeEditModal();
-            saveStateToLocalStorage();
-            renderTable();
-            renderOnCourseGrid();
-            updateSummaryCounters();
+            if (isCloudEnabled) {
+                if (!user) return;
+                try {
+                    const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
+                    await setDoc(boatDocRef, updatedData);
+                    closeEditModal();
+                } catch (e) {
+                    console.error("Cloud boat edit save failed:", e);
+                }
+            } else {
+                state.boats[bow] = updatedData;
+                closeEditModal();
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }
         }
 
-        // --- CSV EXPORTER ---
+        // --- DATA DESTRUCTION AND ERASE OPERATIONS ---
+        async function deleteBoatWithWarning(bow) {
+            const confirmed = await showConfirm(
+                "Delete Boat", 
+                `Are you sure you want to completely erase Bow #${bow}?`
+            );
+            if (!confirmed) return;
+
+            if (isCloudEnabled) {
+                if (!user) return;
+                try {
+                    const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
+                    await deleteDoc(boatDocRef);
+                } catch (e) {
+                    console.error("Cloud boat deletion failed:", e);
+                }
+            } else {
+                delete state.boats[bow];
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }
+        }
+
+        async function clearAllData() {
+            const confirmed = await showConfirm(
+                "Erase All Records", 
+                "Are you absolutely sure you want to completely erase the entire race logs? This action is irreversible."
+            );
+            if (!confirmed) return;
+
+            if (isCloudEnabled) {
+                if (!user) return;
+                try {
+                    const deletePromises = Object.keys(state.boats).map(bow => {
+                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
+                    });
+                    await Promise.all(deletePromises);
+                } catch (e) {
+                    console.error("Cloud wipe failure:", e);
+                }
+            } else {
+                state.boats = {};
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }
+        }
+
+        // --- EXPORT TO COMPATIBLE EXCEL SHEET ---
         function exportCSV() {
-            let csv = "Bow Number,Crew / Club,Category,Start Epoch (ms),Finish Epoch (ms),Penalty (sec),Net Time,Pace (500m split)\n";
+            let csv = "Bow Number,Crew / Club,Category,Start Elapsed (ms),Finish Elapsed (ms),Penalty (sec),Net Time,Pace (500m split)\n";
             
-            // Sort by same logic as table
             const sortedBows = Object.keys(state.boats).sort((a, b) => {
                 const bA = state.boats[a];
                 const bB = state.boats[b];
@@ -823,6 +1095,25 @@
             link.click();
             document.body.removeChild(link);
         }
+
+        // Focus shift helper
+        function focusNext(id) {
+            const el = document.getElementById(id);
+            if (el) el.focus();
+        }
+
+        // --- MODULE SCAPE TO WINDOW GLOBALS BRIDGE ---
+        window.toggleClock = toggleClock;
+        window.resetClockWithWarning = resetClockWithWarning;
+        window.recordAction = recordAction;
+        window.deleteBoatWithWarning = deleteBoatWithWarning;
+        window.openEditModal = openEditModal;
+        window.closeEditModal = closeEditModal;
+        window.saveEditDetails = saveEditDetails;
+        window.clearAllData = clearAllData;
+        window.exportCSV = exportCSV;
+        window.renderTable = renderTable;
+        window.focusNext = focusNext;
     </script>
 </body>
 </html>
