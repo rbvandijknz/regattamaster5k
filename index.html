@@ -35,7 +35,7 @@
 
     <!-- HEADER -->
     <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 sticky top-0 z-50 shadow-md">
-        <div class="max-w-4xl mx-auto flex justify-between items-center">
+        <div class="max-w-4xl mx-auto flex justify-between items-center gap-2">
             <div class="flex items-center gap-2">
                 <div class="p-2 bg-blue-600 rounded-lg text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -47,7 +47,11 @@
                     <p class="text-xs text-slate-400">Professional Head Race Timer</p>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <!-- Admin Lock Status Badge -->
+                <button id="adminStatusBadge" onclick="toggleAdminLockState()" class="text-xs px-2.5 py-1 rounded-full border flex items-center gap-1 transition-all duration-150 active:scale-95">
+                    <!-- Loaded dynamically via state -->
+                </button>
                 <span id="syncIndicator" class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-full border border-slate-600 flex items-center gap-1">
                     <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse"></span> Connecting Sync...
                 </span>
@@ -79,7 +83,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span><strong>Split-Location Timing Tip:</strong> Ensure both phones have "Set Time Automatically" enabled in iOS/Android settings. This keeps both devices GPS/NTP synchronized to within milliseconds.</span>
+            <span><strong>Split-Location Timing Tip:</strong> Ensure both phones have "Set Time Automatically" enabled in iOS/Android settings. This keeps both devices GPS/NTP synchronized to within milliseconds. Default Admin PIN is <code class="bg-slate-900 px-1 py-0.5 rounded text-slate-200">2026</code>.</span>
         </div>
 
         <!-- CLOUD DIAGNOSTICS ALERT BANNER (Hidden by default, reveals on sync errors) -->
@@ -382,6 +386,33 @@
         </div>
     </div>
 
+    <!-- FLOATING MODAL FOR ADMIN PIN SECURITY ENTRY -->
+    <div id="pinModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                <h3 class="font-bold text-lg text-white">Enter Admin PIN</h3>
+                <button onclick="closePinModal()" class="text-slate-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="space-y-2">
+                <p class="text-xs text-slate-400 leading-relaxed">Please enter the 4-digit administrative password to authorize this action.</p>
+                <input type="password" id="adminPinInput" pattern="[0-9]*" inputmode="numeric" maxlength="8"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3.5 text-white font-bold text-center text-3xl tracking-widest focus:outline-none focus:border-blue-500 digital-font"
+                    placeholder="••••" onkeydown="if(event.key==='Enter') submitAdminPin()">
+                <p id="pinErrorText" class="text-xs text-rose-400 hidden font-semibold">❌ Incorrect PIN. Please try again.</p>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button onclick="closePinModal()" class="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-200">Cancel</button>
+                <button onclick="submitAdminPin()" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-white">Unlock</button>
+            </div>
+        </div>
+    </div>
+
     <!-- CUSTOM DIALOG MODAL (Saves from standard alert/confirm sandbox failures) -->
     <div id="customDialog" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
         <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
@@ -417,6 +448,11 @@
             measurementId: "G-K43QTHQ7HV"
         };
         const DEPLOYED_APP_ID = "regattamaster5k";
+
+        // =========================================================================
+        // SECURITY CONFIG: Secure Admin PIN setup
+        // =========================================================================
+        const ADMIN_PIN = "2026"; // Default passcode required for Clock toggles, Admin View, editing & wiping data
 
         // --- GLOBAL ENVIRONMENT INITS ---
         const appId = typeof __app_id !== 'undefined' && __app_id ? __app_id : DEPLOYED_APP_ID;
@@ -457,6 +493,10 @@
 
         let timerInterval = null;
 
+        // --- ADMIN AUTHENTICATION STATE ---
+        let isAdminAuthenticated = false;
+        let pendingAdminCallback = null;
+
         // --- BOOTSTRAP FIREBASE / LOCAL MODE ---
         if (resolvedConfig) {
             try {
@@ -470,12 +510,23 @@
         }
 
         window.onload = async function() {
+            // Restore session authentication if it was unlocked in current tab previously
+            if (sessionStorage.getItem('regatta_admin_auth') === 'true') {
+                isAdminAuthenticated = true;
+            }
+            updateAdminStatusBadge();
+
             // Restore saved station role selection
             const savedRole = localStorage.getItem('regatta_station_role');
             if (savedRole) {
-                setStationRole(savedRole);
+                // If saved role is 'all' (Dual/Admin) but they are locked out, automatically put them on Start Line
+                if (savedRole === 'all' && !isAdminAuthenticated) {
+                    setStationRole('start');
+                } else {
+                    setStationRole(savedRole);
+                }
             } else {
-                setStationRole('all');
+                setStationRole(isAdminAuthenticated ? 'all' : 'start');
             }
 
             if (isCloudEnabled) {
@@ -542,6 +593,86 @@
                 indicator.className = "text-xs bg-rose-950/90 text-rose-300 px-2.5 py-1 rounded-full border border-rose-800/80 flex items-center gap-1";
                 indicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Offline (Auth Failed)`;
                 showDiagnostics(errorMsg || "Firebase sign-in failed. Please verify Anonymous Auth settings.");
+            }
+        }
+
+        // --- SECURE LOCK CHECK GATE ---
+        function checkAdminAccess(callback) {
+            if (isAdminAuthenticated) {
+                callback();
+            } else {
+                pendingAdminCallback = callback;
+                const pinInput = document.getElementById('adminPinInput');
+                if (pinInput) pinInput.value = '';
+                
+                const errText = document.getElementById('pinErrorText');
+                if (errText) errText.classList.add('hidden');
+                
+                const modal = document.getElementById('pinModal');
+                if (modal) modal.classList.remove('hidden');
+                
+                setTimeout(() => { if (pinInput) pinInput.focus(); }, 150);
+            }
+        }
+
+        function submitAdminPin() {
+            const input = document.getElementById('adminPinInput');
+            const errText = document.getElementById('pinErrorText');
+            if (!input) return;
+
+            if (input.value === ADMIN_PIN) {
+                isAdminAuthenticated = true;
+                sessionStorage.setItem('regatta_admin_auth', 'true');
+                closePinModal();
+                updateAdminStatusBadge();
+                
+                if (pendingAdminCallback) {
+                    const cb = pendingAdminCallback;
+                    pendingAdminCallback = null;
+                    cb();
+                }
+            } else {
+                playBeep();
+                if (errText) errText.classList.remove('hidden');
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        function closePinModal() {
+            const modal = document.getElementById('pinModal');
+            if (modal) modal.classList.add('hidden');
+            pendingAdminCallback = null;
+        }
+
+        function toggleAdminLockState() {
+            if (isAdminAuthenticated) {
+                // If active, lock it immediately
+                isAdminAuthenticated = false;
+                sessionStorage.removeItem('regatta_admin_auth');
+                updateAdminStatusBadge();
+                
+                // If they are currently in dual/admin view, redirect them safely to start line marshal view
+                if (stationRole === 'all') {
+                    setStationRole('start');
+                }
+            } else {
+                // Prompt authentication
+                checkAdminAccess(() => {
+                    // Unlocked callback
+                });
+            }
+        }
+
+        function updateAdminStatusBadge() {
+            const badge = document.getElementById('adminStatusBadge');
+            if (!badge) return;
+            if (isAdminAuthenticated) {
+                badge.className = "text-xs px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1 transition-all duration-150 active:scale-95";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 🔓 Admin Unlocked (Lock)`;
+            } else {
+                badge.className = "text-xs px-2.5 py-1 rounded-full bg-amber-950 text-amber-400 border border-amber-800 flex items-center gap-1 transition-all duration-150 active:scale-95";
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 🔒 Admin Locked`;
             }
         }
 
@@ -755,40 +886,42 @@ service cloud.firestore {
 
         // --- MASTER CLOCK LOOP CONTROL ---
         async function toggleClock() {
-            playBeep();
-            
-            let nextRunning = !state.isRunning;
-            let nextStartTime = state.masterStartTime;
-            let nextOffset = state.elapsedOffset;
+            checkAdminAccess(async () => {
+                playBeep();
+                
+                let nextRunning = !state.isRunning;
+                let nextStartTime = state.masterStartTime;
+                let nextOffset = state.elapsedOffset;
 
-            if (nextRunning) {
-                nextStartTime = Date.now() - nextOffset;
-            } else {
-                nextOffset = Date.now() - (state.masterStartTime || Date.now());
-            }
-
-            // [LOCAL-FIRST UPGRADE]: Always update screen state instantly
-            state.isRunning = nextRunning;
-            state.masterStartTime = nextStartTime;
-            state.elapsedOffset = nextOffset;
-            manageLocalTimer();
-            saveStateToLocalStorage();
-
-            // Background Fire-and-Forget Cloud sync
-            if (isCloudEnabled && user) {
-                const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
-                try {
-                    await setDoc(clockDocRef, {
-                        masterStartTime: nextStartTime,
-                        elapsedOffset: nextOffset,
-                        isRunning: nextRunning
-                    });
-                } catch (e) {
-                    console.error("Cloud clock sync error. Falling back locally:", e);
-                    isCloudEnabled = false;
-                    updateSyncStatus('local_fallback', e.message);
+                if (nextRunning) {
+                    nextStartTime = Date.now() - nextOffset;
+                } else {
+                    nextOffset = Date.now() - (state.masterStartTime || Date.now());
                 }
-            }
+
+                // [LOCAL-FIRST UPGRADE]: Always update screen state instantly
+                state.isRunning = nextRunning;
+                state.masterStartTime = nextStartTime;
+                state.elapsedOffset = nextOffset;
+                manageLocalTimer();
+                saveStateToLocalStorage();
+
+                // Background Fire-and-Forget Cloud sync
+                if (isCloudEnabled && user) {
+                    const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
+                    try {
+                        await setDoc(clockDocRef, {
+                            masterStartTime: nextStartTime,
+                            elapsedOffset: nextOffset,
+                            isRunning: nextRunning
+                        });
+                    } catch (e) {
+                        console.error("Cloud clock sync error. Falling back locally:", e);
+                        isCloudEnabled = false;
+                        updateSyncStatus('local_fallback', e.message);
+                    }
+                }
+            });
         }
 
         // Manage Local timer execution
@@ -824,63 +957,65 @@ service cloud.firestore {
         }
 
         async function resetClockWithWarning() {
-            if (Object.keys(state.boats).length > 0) {
-                const confirmed = await showConfirm(
-                    "Warning: Clock Reset", 
-                    "Are you sure you want to completely reset the clock? This will delete all course standings."
-                );
-                if (!confirmed) return;
-            }
-            
-            const bowsToDelete = Object.keys(state.boats);
-
-            // Instant local state reset
-            clearInterval(timerInterval);
-            timerInterval = null;
-            state.isRunning = false;
-            state.masterStartTime = null;
-            state.elapsedOffset = 0;
-            state.boats = {};
-            
-            document.getElementById('masterClock').textContent = "00:00:00.0";
-            const btn = document.getElementById('toggleClockBtn');
-            if (btn) {
-                btn.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg> Start Race Clock`;
-                btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
-            }
-            
-            saveStateToLocalStorage();
-            renderTable();
-            renderOnCourseGrid();
-            renderStartMarshalRecentDepartures();
-            updateSummaryCounters();
-
-            // Background Cloud sync
-            if (isCloudEnabled && user) {
-                try {
-                    // Reset cloud clock config
-                    const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
-                    await setDoc(clockDocRef, {
-                        masterStartTime: null,
-                        elapsedOffset: 0,
-                        isRunning: false
-                    });
-
-                    // Clear out existing cloud collection of boats (Rule 2 simple queries)
-                    const deletePromises = bowsToDelete.map(bow => {
-                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
-                    });
-                    await Promise.all(deletePromises);
-                } catch(e) {
-                    console.error("Cloud reset failed. Falling back locally:", e);
-                    isCloudEnabled = false;
-                    updateSyncStatus('local_fallback', e.message);
+            checkAdminAccess(async () => {
+                if (Object.keys(state.boats).length > 0) {
+                    const confirmed = await showConfirm(
+                        "Warning: Clock Reset", 
+                        "Are you sure you want to completely reset the clock? This will delete all course standings."
+                    );
+                    if (!confirmed) return;
                 }
-            }
+                
+                const bowsToDelete = Object.keys(state.boats);
+
+                // Instant local state reset
+                clearInterval(timerInterval);
+                timerInterval = null;
+                state.isRunning = false;
+                state.masterStartTime = null;
+                state.elapsedOffset = 0;
+                state.boats = {};
+                
+                document.getElementById('masterClock').textContent = "00:00:00.0";
+                const btn = document.getElementById('toggleClockBtn');
+                if (btn) {
+                    btn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg> Start Race Clock`;
+                    btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
+                }
+                
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                renderStartMarshalRecentDepartures();
+                updateSummaryCounters();
+
+                // Background Cloud sync
+                if (isCloudEnabled && user) {
+                    try {
+                        // Reset cloud clock config
+                        const clockDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'clockState', 'config');
+                        await setDoc(clockDocRef, {
+                            masterStartTime: null,
+                            elapsedOffset: 0,
+                            isRunning: false
+                        });
+
+                        // Clear out existing cloud collection of boats (Rule 2 simple queries)
+                        const deletePromises = bowsToDelete.map(bow => {
+                            return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
+                        });
+                        await Promise.all(deletePromises);
+                    } catch(e) {
+                        console.error("Cloud reset failed. Falling back locally:", e);
+                        isCloudEnabled = false;
+                        updateSyncStatus('local_fallback', e.message);
+                    }
+                }
+            });
         }
 
         function getCurrentElapsedMs() {
@@ -923,6 +1058,14 @@ service cloud.firestore {
 
         // --- COOPERATIVE SPLIT-DEVICE SYSTEM ROLES UI LOGIC ---
         function setStationRole(role) {
+            // [PIN ENFORCEMENT]: Guard switching into Admin view ('all')
+            if (role === 'all' && !isAdminAuthenticated) {
+                checkAdminAccess(() => {
+                    setStationRole('all');
+                });
+                return;
+            }
+
             stationRole = role;
             localStorage.setItem('regatta_station_role', role);
 
@@ -1108,9 +1251,7 @@ service cloud.firestore {
                 return;
             }
 
-            // CRITICAL HIERARCHY UX FIX: Sort by start time ascending.
-            // The boat on the water the longest (earliest departure) is placed top-left, 
-            // since it is logically most likely to cross the finish line next.
+            // Sort by start time ascending.
             onCourseBoats.sort((a, b) => a[1].startMs - b[1].startMs);
 
             onCourseBoats.forEach(([bow, data]) => {
@@ -1291,17 +1432,19 @@ service cloud.firestore {
 
         // --- EDITING DETAILS MODALS ---
         function openEditModal(bow) {
-            const data = state.boats[bow];
-            if (!data) return;
+            checkAdminAccess(() => {
+                const data = state.boats[bow];
+                if (!data) return;
 
-            document.getElementById('editBowId').value = bow;
-            document.getElementById('editCrewName').value = data.crew;
-            document.getElementById('editCategory').value = data.category || '';
-            document.getElementById('editStartSec').value = data.startMs !== null ? (data.startMs / 1000).toFixed(1) : '';
-            document.getElementById('editFinishSec').value = data.finishMs !== null ? (data.finishMs / 1000).toFixed(1) : '';
-            document.getElementById('editPenalty').value = data.penaltySeconds || 0;
+                document.getElementById('editBowId').value = bow;
+                document.getElementById('editCrewName').value = data.crew;
+                document.getElementById('editCategory').value = data.category || '';
+                document.getElementById('editStartSec').value = data.startMs !== null ? (data.startMs / 1000).toFixed(1) : '';
+                document.getElementById('editFinishSec').value = data.finishMs !== null ? (data.finishMs / 1000).toFixed(1) : '';
+                document.getElementById('editPenalty').value = data.penaltySeconds || 0;
 
-            document.getElementById('editModal').classList.remove('hidden');
+                document.getElementById('editModal').classList.remove('hidden');
+            });
         }
 
         function closeEditModal() {
@@ -1309,6 +1452,7 @@ service cloud.firestore {
         }
 
         async function saveEditDetails() {
+            // Guarded internally by openEditModal verification
             const bow = document.getElementById('editBowId').value;
             if (!state.boats[bow]) return;
 
@@ -1350,63 +1494,67 @@ service cloud.firestore {
 
         // --- DATA DESTRUCTION AND ERASE OPERATIONS ---
         async function deleteBoatWithWarning(bow) {
-            const confirmed = await showConfirm(
-                "Delete Boat", 
-                `Are you sure you want to completely erase Bow #${bow}?`
-            );
-            if (!confirmed) return;
+            checkAdminAccess(async () => {
+                const confirmed = await showConfirm(
+                    "Delete Boat", 
+                    `Are you sure you want to completely erase Bow #${bow}?`
+                );
+                if (!confirmed) return;
 
-            // Local update first
-            delete state.boats[bow];
-            saveStateToLocalStorage();
-            renderTable();
-            renderOnCourseGrid();
-            renderStartMarshalRecentDepartures();
-            updateSummaryCounters();
+                // Local update first
+                delete state.boats[bow];
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                renderStartMarshalRecentDepartures();
+                updateSummaryCounters();
 
-            // Cloud delete background
-            if (isCloudEnabled && user) {
-                try {
-                    const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
-                    await deleteDoc(boatDocRef);
-                } catch (e) {
-                    console.error("Cloud boat deletion failed:", e);
-                    isCloudEnabled = false;
-                    updateSyncStatus('local_fallback', e.message);
+                // Cloud delete background
+                if (isCloudEnabled && user) {
+                    try {
+                        const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
+                        await deleteDoc(boatDocRef);
+                    } catch (e) {
+                        console.error("Cloud boat deletion failed:", e);
+                        isCloudEnabled = false;
+                        updateSyncStatus('local_fallback', e.message);
+                    }
                 }
-            }
+            });
         }
 
         async function clearAllData() {
-            const confirmed = await showConfirm(
-                "Erase All Records", 
-                "Are you absolutely sure you want to completely erase the entire race logs? This action is irreversible."
-            );
-            if (!confirmed) return;
+            checkAdminAccess(async () => {
+                const confirmed = await showConfirm(
+                    "Erase All Records", 
+                    "Are you absolutely sure you want to completely erase the entire race logs? This action is irreversible."
+                );
+                if (!confirmed) return;
 
-            const bowsToDelete = Object.keys(state.boats);
+                const bowsToDelete = Object.keys(state.boats);
 
-            // Local reset first
-            state.boats = {};
-            saveStateToLocalStorage();
-            renderTable();
-            renderOnCourseGrid();
-            renderStartMarshalRecentDepartures();
-            updateSummaryCounters();
+                // Local reset first
+                state.boats = {};
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                renderStartMarshalRecentDepartures();
+                updateSummaryCounters();
 
-            // Background Cloud sync
-            if (isCloudEnabled && user) {
-                try {
-                    const deletePromises = bowsToDelete.map(bow => {
-                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
-                    });
-                    await Promise.all(deletePromises);
-                } catch (e) {
-                    console.error("Cloud wipe failure:", e);
-                    isCloudEnabled = false;
-                    updateSyncStatus('local_fallback', e.message);
+                // Background Cloud sync
+                if (isCloudEnabled && user) {
+                    try {
+                        const deletePromises = bowsToDelete.map(bow => {
+                            return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
+                        });
+                        await Promise.all(deletePromises);
+                    } catch (e) {
+                        console.error("Cloud wipe failure:", e);
+                        isCloudEnabled = false;
+                        updateSyncStatus('local_fallback', e.message);
+                    }
                 }
-            }
+            });
         }
 
         // --- EXPORT TO COMPATIBLE EXCEL SHEET ---
@@ -1448,7 +1596,7 @@ service cloud.firestore {
             if (el) el.focus();
         }
 
-        // --- MODULE SCAPE TO WINDOW GLOBALS BRIDGE ---
+        // --- MODULE SCOPE TO WINDOW GLOBALS BRIDGE ---
         window.toggleClock = toggleClock;
         window.resetClockWithWarning = resetClockWithWarning;
         window.recordAction = recordAction;
@@ -1463,6 +1611,9 @@ service cloud.firestore {
         window.dismissDiagnostics = dismissDiagnostics;
         window.setStationRole = setStationRole;
         window.triggerPrimaryAction = triggerPrimaryAction;
+        window.submitAdminPin = submitAdminPin;
+        window.closePinModal = closePinModal;
+        window.toggleAdminLockState = toggleAdminLockState;
     </script>
 </body>
 </html>
