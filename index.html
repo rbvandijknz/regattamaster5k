@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>RegattaMaster 5K Timer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for digital look -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .digital-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Hide scrollbars for a cleaner app look */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col pb-10">
+
+    <!-- HEADER -->
+    <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 sticky top-0 z-50 shadow-md">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <div class="p-2 bg-blue-600 rounded-lg text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight text-white">RegattaMaster 5K</h1>
+                    <p class="text-xs text-slate-400">Professional Head Race Timer</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="saveStatus" class="text-xs bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-800 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Auto-Saved
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-4xl w-full mx-auto p-4 space-y-4">
+
+        <!-- ROW 1: MASTER TIMEKEEPER -->
+        <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="text-center md:text-left">
+                <span class="text-xs font-semibold tracking-wider text-slate-400 uppercase">Race Master Clock</span>
+                <div id="masterClock" class="text-5xl md:text-6xl font-black digital-font text-blue-400 tracking-wider mt-1 drop-shadow-[0_0_10px_rgba(59,130,246,0.3)]">
+                    00:00:00.0
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2 w-full md:w-auto">
+                <button id="toggleClockBtn" onclick="toggleClock()" class="flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Start Race Clock
+                </button>
+                <button onclick="resetClockWithWarning()" class="px-4 py-3 bg-slate-700 hover:bg-slate-600 active:scale-95 transition rounded-xl font-semibold text-sm text-slate-300 hover:text-white flex items-center justify-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18" />
+                    </svg>
+                    Reset
+                </button>
+            </div>
+        </div>
+
+        <!-- ROW 2: RECORD ENTRIES / QUICK TIMING -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            <!-- Timing Terminal Card -->
+            <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col justify-between">
+                <div>
+                    <h2 class="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-blue-500"></span> Record Boat Timestamp
+                    </h2>
+                    
+                    <div class="grid grid-cols-3 gap-3 mb-4">
+                        <div class="col-span-1">
+                            <label class="block text-xs text-slate-400 mb-1">Bow #</label>
+                            <input type="number" id="bowNum" pattern="[0-9]*" inputmode="numeric" 
+                                class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-white font-bold text-center text-xl focus:outline-none focus:border-blue-500 digital-font"
+                                placeholder="--" onkeydown="if(event.key==='Enter') focusNext('crewName')">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-xs text-slate-400 mb-1">Crew / Club Name</label>
+                            <input type="text" id="crewName" 
+                                class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-white text-base focus:outline-none focus:border-blue-500"
+                                placeholder="e.g. Oxford A" onkeydown="if(event.key==='Enter') document.getElementById('recordStartBtn').click()">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">Event Category</label>
+                            <select id="eventCategory" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-blue-500">
+                                <optgroup label="Singles & Doubles">
+                                    <option value="Men's 1x">Men's 1x (Single)</option>
+                                    <option value="Women's 1x">Women's 1x (Single)</option>
+                                    <option value="Men's 2x">Men's 2x (Double)</option>
+                                    <option value="Women's 2x">Women's 2x (Double)</option>
+                                    <option value="Men's 2-">Men's 2- (Coxless Pair)</option>
+                                    <option value="Women's 2-">Women's 2- (Coxless Pair)</option>
+                                </optgroup>
+                                <optgroup label="Fours (Coxed & Coxless)">
+                                    <option value="Men's 4-">Men's 4- (Coxless Four)</option>
+                                    <option value="Women's 4-">Women's 4- (Coxless Four)</option>
+                                    <option value="Men's 4+">Men's 4+ (Coxed Four)</option>
+                                    <option value="Women's 4+">Women's 4+ (Coxed Four)</option>
+                                </optgroup>
+                                <optgroup label="Quads (Coxed & Coxless)">
+                                    <option value="Men's 4x-">Men's 4x- (Coxless Quad)</option>
+                                    <option value="Women's 4x-">Women's 4x- (Coxless Quad)</option>
+                                    <option value="Men's 4x+">Men's 4x+ (Coxed Quad)</option>
+                                    <option value="Women's 4x+">Women's 4x+ (Coxed Quad)</option>
+                                </optgroup>
+                                <optgroup label="Eights">
+                                    <option value="Men's 8+">Men's 8+ (Eight)</option>
+                                    <option value="Women's 8+">Women's 8+ (Eight)</option>
+                                </optgroup>
+                                <optgroup label="Other">
+                                    <option value="Mixed Masters">Mixed Masters</option>
+                                    <option value="Open Category">Open Category</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">Penalties (Default)</label>
+                            <select id="penaltySelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-blue-500">
+                                <option value="0">None</option>
+                                <option value="10">+10s (Missed Buoy)</option>
+                                <option value="30">+30s (Yield Infraction)</option>
+                                <option value="60">+60s (Severe Foul)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mt-2">
+                    <button id="recordStartBtn" onclick="recordAction('start')" class="py-4 bg-blue-600 hover:bg-blue-500 active:scale-95 transition rounded-xl font-bold text-base text-white shadow-lg shadow-blue-900/30 flex flex-col items-center justify-center gap-1">
+                        <span class="text-xs opacity-80 uppercase tracking-widest">Rowing Out</span>
+                        <span class="flex items-center gap-1.5">🛫 Record Start</span>
+                    </button>
+                    <button id="recordFinishBtn" onclick="recordAction('finish')" class="py-4 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-bold text-base text-white shadow-lg shadow-rose-900/30 flex flex-col items-center justify-center gap-1">
+                        <span class="text-xs opacity-80 uppercase tracking-widest">Crossing Line</span>
+                        <span class="flex items-center gap-1.5">🏁 Record Finish</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- "On Course" Quick-Tap Finishing Area -->
+            <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span> On Course Now
+                    </h2>
+                    <span id="activeCount" class="text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 px-2 py-0.5 rounded-full">0 Boats</span>
+                </div>
+                
+                <p class="text-xs text-slate-400 mb-3">Tap any boat below the split second it crosses the finish line:</p>
+
+                <!-- Scrollable Grid of Boats on Water -->
+                <div id="onCourseGrid" class="flex-grow grid grid-cols-3 sm:grid-cols-4 gap-2 overflow-y-auto max-h-[190px] pr-1">
+                    <!-- Dynamic Grid Items -->
+                    <div class="col-span-full flex flex-col items-center justify-center text-slate-500 py-10 text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-2 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p class="text-xs">No boats currently on the course.<br>Log a Start above to begin!</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- STATS / LIVE OVERVIEW PANEL -->
+        <div class="grid grid-cols-3 gap-2 sm:gap-4 text-center">
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-3">
+                <span class="block text-xs text-slate-400 font-medium">Total Registered</span>
+                <span id="statTotal" class="text-xl sm:text-2xl font-bold text-white digital-font">0</span>
+            </div>
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-3">
+                <span class="block text-xs text-slate-400 font-medium">Currently Racing</span>
+                <span id="statRacing" class="text-xl sm:text-2xl font-bold text-amber-400 digital-font">0</span>
+            </div>
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-3">
+                <span class="block text-xs text-slate-400 font-medium">Finished Results</span>
+                <span id="statFinished" class="text-xl sm:text-2xl font-bold text-emerald-400 digital-font">0</span>
+            </div>
+        </div>
+
+        <!-- SEARCH & OPERATIONS BAR -->
+        <div class="bg-slate-800 rounded-2xl p-4 border border-slate-700 shadow-xl flex flex-col sm:flex-row justify-between gap-3 items-center">
+            <div class="relative w-full sm:w-72">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </span>
+                <input type="text" id="searchTable" oninput="renderTable()" placeholder="Search Bow, Crew, or Class..." class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="flex gap-2 w-full sm:w-auto">
+                <button onclick="exportCSV()" class="flex-1 sm:flex-none px-4 py-2 bg-slate-700 hover:bg-slate-600 active:scale-95 transition rounded-xl text-sm font-semibold text-slate-200 flex items-center justify-center gap-1.5 border border-slate-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Export CSV
+                </button>
+                <button onclick="clearAllData()" class="px-4 py-2 bg-rose-950/40 hover:bg-rose-950/60 active:scale-95 transition rounded-xl text-sm font-semibold text-rose-400 flex items-center justify-center gap-1.5 border border-rose-900/50">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Wipe Board
+                </button>
+            </div>
+        </div>
+
+        <!-- RESULTS TABLE / STANDINGS -->
+        <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="font-bold text-base text-white">Live Regatta Standings (Sorted by Net Time)</h3>
+                <span class="text-xs text-slate-400">Total 5,000 Meters</span>
+            </div>
+            
+            <div class="overflow-x-auto w-full">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-850 text-slate-400 text-xs font-semibold uppercase tracking-wider border-b border-slate-700">
+                            <th class="py-3 px-4">Bow</th>
+                            <th class="py-3 px-4">Crew & Category</th>
+                            <th class="py-3 px-4">Start Clock</th>
+                            <th class="py-3 px-4">Finish Clock</th>
+                            <th class="py-3 px-4">Penalties</th>
+                            <th class="py-3 px-4">Net Duration</th>
+                            <th class="py-3 px-4">Avg 500m Split</th>
+                            <th class="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsTableBody" class="divide-y divide-slate-700 text-sm">
+                        <!-- Dynamic Rows loaded by Javascript -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Empty state fallback for table -->
+            <div id="tableEmptyState" class="p-8 text-center text-slate-500 hidden">
+                No race logs found matching your query.
+            </div>
+        </div>
+
+    </main>
+
+    <!-- FLOATING MODAL FOR EDITING ENTRIES -->
+    <div id="editModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                <h3 class="font-bold text-lg text-white">Adjust Boat Timing Details</h3>
+                <button onclick="closeEditModal()" class="text-slate-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="space-y-3">
+                <input type="hidden" id="editBowId">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Crew Name</label>
+                    <input type="text" id="editCrewName" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Category</label>
+                    <input type="text" id="editCategory" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Start Time (sec)</label>
+                        <input type="number" step="0.1" id="editStartSec" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 digital-font">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Finish Time (sec)</label>
+                        <input type="number" step="0.1" id="editFinishSec" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 digital-font">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Penalties (Added Seconds)</label>
+                    <input type="number" id="editPenalty" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 digital-font">
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeEditModal()" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-200">Cancel</button>
+                <button onclick="saveEditDetails()" class="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-white">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AUDIO FEEDBACK FOR ACCURATE TIMING Confirmation -->
+    <audio id="beepSound" src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==A" preload="auto"></audio>
+
+    <script>
+        // --- CONSTANTS & CONFIGURATION ---
+        const DISTANCE_METERS = 5000;
+
+        // --- CORE APPLICATION STATE ---
+        let state = {
+            masterStartTime: null,    // Absolute Epoch Ms when Master Clock started
+            elapsedOffset: 0,         // To resume paused states or support manually configured start offset
+            isRunning: false,
+            boats: {}                 // Key: Bow #, Value: { crew, category, startMs, finishMs, penaltySeconds }
+        };
+
+        let timerInterval = null;
+
+        // --- LIFE CYCLE: ON WINDOW LOAD ---
+        window.onload = function() {
+            loadStateFromLocalStorage();
+            if (state.isRunning && state.masterStartTime) {
+                // Resume running timer
+                timerInterval = setInterval(updateMasterClockDisplay, 100);
+                document.getElementById('toggleClockBtn').innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg> Stop / Pause`;
+                document.getElementById('toggleClockBtn').className = "flex-1 md:flex-none px-6 py-3 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30";
+            }
+            updateMasterClockDisplay();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+        };
+
+        // --- LOCAL STORAGE HELPERS ---
+        function saveStateToLocalStorage() {
+            localStorage.setItem('regatta_master_state', JSON.stringify(state));
+            const saveStatusEl = document.getElementById('saveStatus');
+            saveStatusEl.classList.remove('opacity-50');
+            setTimeout(() => saveStatusEl.classList.add('opacity-50'), 1500);
+        }
+
+        function loadStateFromLocalStorage() {
+            const data = localStorage.getItem('regatta_master_state');
+            if (data) {
+                try {
+                    const parsed = JSON.parse(data);
+                    // Standardize keys
+                    state.masterStartTime = parsed.masterStartTime || null;
+                    state.elapsedOffset = parsed.elapsedOffset || 0;
+                    state.isRunning = parsed.isRunning || false;
+                    state.boats = parsed.boats || {};
+                } catch(e) {
+                    console.error("Failed to restore saved timing state, starting fresh.", e);
+                }
+            }
+        }
+
+        // --- AUDITORY TAP FEEDBACK ---
+        function playBeep() {
+            try {
+                // Generate synth beep programmatically to ensure instant touch-to-sound action without network assets
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.value = 1200; // high pitched fast beep
+                gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                
+                oscillator.start();
+                gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.1);
+                oscillator.stop(audioCtx.currentTime + 0.1);
+            } catch(e) {
+                // Browser might prevent play without initial interaction, fail silently
+            }
+        }
+
+        // --- MASTER CLOCK OPERATIONS ---
+        function toggleClock() {
+            playBeep();
+            if (!state.isRunning) {
+                // START
+                state.isRunning = true;
+                state.masterStartTime = Date.now() - state.elapsedOffset;
+                timerInterval = setInterval(updateMasterClockDisplay, 100);
+                
+                const btn = document.getElementById('toggleClockBtn');
+                btn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg> Stop / Pause`;
+                btn.className = "flex-1 md:flex-none px-6 py-3 bg-rose-600 hover:bg-rose-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30";
+            } else {
+                // PAUSE
+                state.isRunning = false;
+                state.elapsedOffset = Date.now() - state.masterStartTime;
+                clearInterval(timerInterval);
+                
+                const btn = document.getElementById('toggleClockBtn');
+                btn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg> Resume Clock`;
+                btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
+            }
+            saveStateToLocalStorage();
+        }
+
+        function resetClockWithWarning() {
+            if (Object.keys(state.boats).length > 0) {
+                if (!confirm("WARNING: resetting the clock will wipe out all boat recordings & standings on course. Are you sure you want to continue?")) {
+                    return;
+                }
+            }
+            
+            clearInterval(timerInterval);
+            state.isRunning = false;
+            state.masterStartTime = null;
+            state.elapsedOffset = 0;
+            state.boats = {};
+            
+            // UI Reset
+            document.getElementById('masterClock').textContent = "00:00:00.0";
+            const btn = document.getElementById('toggleClockBtn');
+            btn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg> Start Race Clock`;
+            btn.className = "flex-1 md:flex-none px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30";
+            
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+        }
+
+        function getCurrentElapsedMs() {
+            if (!state.isRunning) return state.elapsedOffset;
+            return Date.now() - state.masterStartTime;
+        }
+
+        function updateMasterClockDisplay() {
+            const totalMs = getCurrentElapsedMs();
+            document.getElementById('masterClock').textContent = formatMsToTimeStr(totalMs);
+            
+            // Also continuously redraw any dynamic elapsed times in "On Course" widgets
+            updateOnCourseTimers();
+        }
+
+        // --- TIME FORMATTING UTILITIES ---
+        function formatMsToTimeStr(ms) {
+            if (ms === null || ms === undefined || isNaN(ms)) return "--:--:--.-";
+            let tenths = Math.floor((ms % 1000) / 100);
+            let seconds = Math.floor((ms / 1000) % 60);
+            let minutes = Math.floor((ms / (1000 * 60)) % 60);
+            let hours = Math.floor((ms / (1000 * 60 * 60)) % 24);
+
+            hours = (hours < 10) ? "0" + hours : hours;
+            minutes = (minutes < 10) ? "0" + minutes : minutes;
+            seconds = (seconds < 10) ? "0" + seconds : seconds;
+
+            return `${hours}:${minutes}:${seconds}.${tenths}`;
+        }
+
+        // Convert 500m split pace calculation
+        function calculatePace(netMs) {
+            if (!netMs || netMs <= 0) return "--:--.-";
+            // 5K is 5000m. Pace is time per 500m. Total split parts = 5000/500 = 10 parts
+            const paceMs = netMs / 10;
+            let tenths = Math.floor((paceMs % 1000) / 100);
+            let seconds = Math.floor((paceMs / 1000) % 60);
+            let minutes = Math.floor((paceMs / (1000 * 60)) % 60);
+
+            seconds = (seconds < 10) ? "0" + seconds : seconds;
+            return `${minutes}:${seconds}.${tenths}`;
+        }
+
+        // --- ACTION RECORDER FOR BOAT TIMINGS ---
+        function recordAction(type, targetBow = null) {
+            playBeep();
+            
+            if (!state.masterStartTime && !state.elapsedOffset) {
+                alert("Clock Error: Please start the Master Clock first before timing individual boats.");
+                return;
+            }
+
+            const bowInput = document.getElementById('bowNum');
+            const crewInput = document.getElementById('crewName');
+            const categoryInput = document.getElementById('eventCategory');
+            const penaltyInput = document.getElementById('penaltySelect');
+
+            const bow = (targetBow || bowInput.value).trim();
+            if (!bow) {
+                alert("Incomplete Data: Please input or select a Bow number.");
+                return;
+            }
+
+            const timestamp = getCurrentElapsedMs();
+
+            if (!state.boats[bow]) {
+                const defaultCrew = crewInput.value.trim() || `Bow ${bow}`;
+                state.boats[bow] = {
+                    crew: defaultCrew,
+                    category: categoryInput.value,
+                    startMs: null,
+                    finishMs: null,
+                    penaltySeconds: parseInt(penaltyInput.value) || 0
+                };
+            }
+
+            if (type === 'start') {
+                if (state.boats[bow].startMs !== null) {
+                    if (!confirm(`Overwrite Alert: Bow ${bow} already has a logged start time. Replace it?`)) return;
+                }
+                state.boats[bow].startMs = timestamp;
+            } else if (type === 'finish') {
+                if (state.boats[bow].startMs === null) {
+                    if (!confirm(`Warning: Bow ${bow} does not have a recorded start time. Register finish timestamp anyway?`)) return;
+                }
+                state.boats[bow].finishMs = timestamp;
+            }
+
+            // Clean inputs for rapid queue flow
+            if (!targetBow) {
+                bowInput.value = '';
+                crewInput.value = '';
+                penaltyInput.value = '0';
+                bowInput.focus();
+            }
+
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+        }
+
+        // --- INTERACTIVE COMPONENTS ---
+        
+        // Render "On Course" Quick-Tap finishing cells
+        function renderOnCourseGrid() {
+            const container = document.getElementById('onCourseGrid');
+            container.innerHTML = '';
+
+            const onCourseBoats = Object.entries(state.boats).filter(([bow, data]) => {
+                return data.startMs !== null && data.finishMs === null;
+            });
+
+            if (onCourseBoats.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full flex flex-col items-center justify-center text-slate-500 py-10 text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-1.5 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p class="text-xs">No active racing boats on course.</p>
+                    </div>`;
+                return;
+            }
+
+            // Sort by start index ascending so earliest starting boats show first
+            onCourseBoats.sort((a, b) => a[1].startMs - b[1].startMs);
+
+            onCourseBoats.forEach(([bow, data]) => {
+                const button = document.createElement('button');
+                button.className = "flex flex-col justify-between items-center p-3 bg-slate-900 border border-slate-700 hover:border-rose-500 active:scale-95 transition rounded-xl text-center shadow-md relative overflow-hidden group min-h-[75px]";
+                button.onclick = () => recordAction('finish', bow);
+                
+                button.innerHTML = `
+                    <div class="absolute top-1 left-2 text-[10px] text-slate-400 font-bold bg-slate-800 px-1.5 py-0.5 rounded">#${bow}</div>
+                    <div class="mt-4 font-bold text-sm text-ellipsis overflow-hidden w-full whitespace-nowrap text-white">${data.crew}</div>
+                    <div class="text-[11px] font-mono text-amber-400 dynamic-elapsed" data-start="${data.startMs}">00:00</div>
+                    <div class="absolute inset-0 bg-rose-600/10 opacity-0 group-hover:opacity-100 transition duration-150 flex items-center justify-center text-[10px] font-extrabold text-rose-400 tracking-wider">TAP TO FINISH</div>
+                `;
+                container.appendChild(button);
+            });
+        }
+
+        // Continuous polling update for active racing timers inside the dashboard widgets
+        function updateOnCourseTimers() {
+            const now = getCurrentElapsedMs();
+            const elements = document.querySelectorAll('.dynamic-elapsed');
+            elements.forEach(el => {
+                const startMs = parseFloat(el.getAttribute('data-start'));
+                const diff = now - startMs;
+                if (diff > 0) {
+                    let secs = Math.floor((diff / 1000) % 60);
+                    let mins = Math.floor((diff / (1000 * 60)) % 60);
+                    let hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+                    
+                    secs = (secs < 10) ? "0" + secs : secs;
+                    mins = (mins < 10) ? "0" + mins : mins;
+                    
+                    if (hours > 0) {
+                        el.textContent = `${hours}:${mins}:${secs}`;
+                    } else {
+                        el.textContent = `${mins}:${secs}`;
+                    }
+                } else {
+                    el.textContent = "00:00";
+                }
+            });
+        }
+
+        // --- RENDER CLASSIFIED STANDINGS TABLE ---
+        function renderTable() {
+            const tbody = document.getElementById('resultsTableBody');
+            const searchVal = document.getElementById('searchTable').value.toLowerCase().trim();
+            const emptyState = document.getElementById('tableEmptyState');
+            tbody.innerHTML = '';
+
+            let hasMatches = false;
+
+            // Sort all recorded boats. Finished boats with verified elapsed net times sort highest.
+            // Active racing boats display below finished competitors.
+            const sortedBows = Object.keys(state.boats).sort((a, b) => {
+                const bA = state.boats[a];
+                const bB = state.boats[b];
+
+                const netA = (bA.finishMs !== null && bA.startMs !== null) ? (bA.finishMs - bA.startMs + (bA.penaltySeconds * 1000)) : Infinity;
+                const netB = (bB.finishMs !== null && bB.startMs !== null) ? (bB.finishMs - bB.startMs + (bB.penaltySeconds * 1000)) : Infinity;
+
+                if (netA === Infinity && netB !== Infinity) return 1;
+                if (netB === Infinity && netA !== Infinity) return -1;
+                if (netA === Infinity && netB === Infinity) {
+                    // Both started but unfished, sort by start time descending (newest start first)
+                    return (bB.startMs || 0) - (bA.startMs || 0);
+                }
+                return netA - netB;
+            });
+
+            sortedBows.forEach(bow => {
+                const data = state.boats[bow];
+                
+                // Query Filters
+                const crewNameMatch = data.crew.toLowerCase().includes(searchVal);
+                const bowMatch = bow.includes(searchVal);
+                const categoryMatch = (data.category || '').toLowerCase().includes(searchVal);
+
+                if (searchVal && !crewNameMatch && !bowMatch && !categoryMatch) {
+                    return; // Skip non-matching rows
+                }
+
+                hasMatches = true;
+
+                const hasFinished = data.startMs !== null && data.finishMs !== null;
+                const rawNetMs = hasFinished ? (data.finishMs - data.startMs) : null;
+                const penaltyAddedMs = (data.penaltySeconds || 0) * 1000;
+                const totalNetMs = hasFinished ? (rawNetMs + penaltyAddedMs) : null;
+
+                const paceStr = hasFinished ? calculatePace(totalNetMs) : "--:--.-";
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-750 transition duration-150";
+                tr.innerHTML = `
+                    <td class="py-3 px-4 font-bold text-white text-base digital-font">#${bow}</td>
+                    <td class="py-3 px-4">
+                        <div class="font-semibold text-slate-100">${data.crew}</div>
+                        <div class="text-xs text-slate-400 font-medium">${data.category || 'Standard Category'}</div>
+                    </td>
+                    <td class="py-3 px-4 text-xs font-medium text-slate-300 digital-font">${formatMsToTimeStr(data.startMs)}</td>
+                    <td class="py-3 px-4 text-xs font-medium text-slate-300 digital-font">${formatMsToTimeStr(data.finishMs)}</td>
+                    <td class="py-3 px-4">
+                        <span class="text-xs px-2 py-0.5 rounded-md font-semibold ${data.penaltySeconds > 0 ? 'bg-amber-950 text-amber-400 border border-amber-900/50' : 'text-slate-500'}">
+                            +${data.penaltySeconds}s
+                        </span>
+                    </td>
+                    <td class="py-3 px-4 font-bold text-sm digital-font ${hasFinished ? 'text-emerald-400' : 'text-slate-500 italic'}">
+                        ${hasFinished ? formatMsToTimeStr(totalNetMs) : 'On Course...'}
+                    </td>
+                    <td class="py-3 px-4 text-xs font-semibold text-sky-400 digital-font">${paceStr}</td>
+                    <td class="py-3 px-4 text-right">
+                        <div class="flex gap-2 justify-end">
+                            <button onclick="openEditModal('${bow}')" class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 active:scale-95 transition text-xs font-semibold rounded-lg text-slate-300 hover:text-white" title="Edit Parameters">
+                                Edit
+                            </button>
+                            <button onclick="deleteBoatWithWarning('${bow}')" class="px-2 py-1.5 bg-rose-950/20 hover:bg-rose-950/50 hover:text-rose-400 active:scale-95 transition text-xs font-semibold rounded-lg text-slate-400" title="Delete Row">
+                                Remove
+                            </button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            if (!hasMatches) {
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+            }
+        }
+
+        // --- DASHBOARD COUNTERS ---
+        function updateSummaryCounters() {
+            const total = Object.keys(state.boats).length;
+            const racing = Object.values(state.boats).filter(b => b.startMs !== null && b.finishMs === null).length;
+            const finished = Object.values(state.boats).filter(b => b.startMs !== null && b.finishMs !== null).length;
+
+            document.getElementById('statTotal').textContent = total;
+            document.getElementById('statRacing').textContent = racing;
+            document.getElementById('statFinished').textContent = finished;
+            document.getElementById('activeCount').textContent = `${racing} Boat${racing !== 1 ? 's' : ''}`;
+        }
+
+        // --- FOCUS NAVIGATION UTILITY ---
+        function focusNext(id) {
+            document.getElementById(id).focus();
+        }
+
+        // --- WIPE OUT ALL LOGS ---
+        function clearAllData() {
+            if (confirm("Are you sure you want to completely erase the entire race logs? This cannot be undone!")) {
+                state.boats = {};
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }
+        }
+
+        // --- TRASH AN INDIVIDUAL ENTRY ---
+        function deleteBoatWithWarning(bow) {
+            if (confirm(`Do you want to delete Bow #${bow} entirely from the records?`)) {
+                delete state.boats[bow];
+                saveStateToLocalStorage();
+                renderTable();
+                renderOnCourseGrid();
+                updateSummaryCounters();
+            }
+        }
+
+        // --- HANDY MANUAL ADJUSTMENTS MODAL ---
+        function openEditModal(bow) {
+            const data = state.boats[bow];
+            if (!data) return;
+
+            document.getElementById('editBowId').value = bow;
+            document.getElementById('editCrewName').value = data.crew;
+            document.getElementById('editCategory').value = data.category || '';
+            document.getElementById('editStartSec').value = data.startMs !== null ? (data.startMs / 1000).toFixed(1) : '';
+            document.getElementById('editFinishSec').value = data.finishMs !== null ? (data.finishMs / 1000).toFixed(1) : '';
+            document.getElementById('editPenalty').value = data.penaltySeconds || 0;
+
+            document.getElementById('editModal').classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.add('hidden');
+        }
+
+        function saveEditDetails() {
+            const bow = document.getElementById('editBowId').value;
+            if (!state.boats[bow]) return;
+
+            const crew = document.getElementById('editCrewName').value.trim();
+            const category = document.getElementById('editCategory').value.trim();
+            const startVal = parseFloat(document.getElementById('editStartSec').value);
+            const finishVal = parseFloat(document.getElementById('editFinishSec').value);
+            const penaltyVal = parseInt(document.getElementById('editPenalty').value) || 0;
+
+            state.boats[bow].crew = crew || `Bow ${bow}`;
+            state.boats[bow].category = category;
+            state.boats[bow].startMs = !isNaN(startVal) ? Math.round(startVal * 1000) : null;
+            state.boats[bow].finishMs = !isNaN(finishVal) ? Math.round(finishVal * 1000) : null;
+            state.boats[bow].penaltySeconds = penaltyVal;
+
+            closeEditModal();
+            saveStateToLocalStorage();
+            renderTable();
+            renderOnCourseGrid();
+            updateSummaryCounters();
+        }
+
+        // --- CSV EXPORTER ---
+        function exportCSV() {
+            let csv = "Bow Number,Crew / Club,Category,Start Epoch (ms),Finish Epoch (ms),Penalty (sec),Net Time,Pace (500m split)\n";
+            
+            // Sort by same logic as table
+            const sortedBows = Object.keys(state.boats).sort((a, b) => {
+                const bA = state.boats[a];
+                const bB = state.boats[b];
+                const netA = (bA.finishMs !== null && bA.startMs !== null) ? (bA.finishMs - bA.startMs + (bA.penaltySeconds * 1000)) : Infinity;
+                const netB = (bB.finishMs !== null && bB.startMs !== null) ? (bB.finishMs - bB.startMs + (bB.penaltySeconds * 1000)) : Infinity;
+                return netA - netB;
+            });
+
+            sortedBows.forEach(bow => {
+                const data = state.boats[bow];
+                const hasFinished = data.startMs !== null && data.finishMs !== null;
+                const totalNetMs = hasFinished ? (data.finishMs - data.startMs + (data.penaltySeconds * 1000)) : null;
+                const pace = hasFinished ? calculatePace(totalNetMs) : "N/A";
+                const formattedNet = hasFinished ? formatMsToTimeStr(totalNetMs) : "On Course";
+
+                csv += `${bow},"${data.crew.replace(/"/g, '""')}","${data.category}",${data.startMs || ''},${data.finishMs || ''},${data.penaltySeconds},${formattedNet},${pace}\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", `regatta_results_5k_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
