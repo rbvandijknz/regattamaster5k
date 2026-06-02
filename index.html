@@ -83,7 +83,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span><strong>Split-Location Timing Tip:</strong> Ensure both phones have "Set Time Automatically" enabled in iOS/Android settings. This keeps both devices GPS/NTP synchronized to within milliseconds. Default Admin PIN is <code class="bg-slate-900 px-1 py-0.5 rounded text-slate-200">2026</code>.</span>
+            <span><strong>Split-Location Timing Tip:</strong> Ensure both phones have "Set Time Automatically" enabled in iOS/Android settings. This keeps both devices GPS/NTP synchronized to within milliseconds. Admin accounts can be configured in your Firebase Console.</span>
         </div>
 
         <!-- CLOUD DIAGNOSTICS ALERT BANNER (Hidden by default, reveals on sync errors) -->
@@ -386,29 +386,34 @@
         </div>
     </div>
 
-    <!-- FLOATING MODAL FOR ADMIN PIN SECURITY ENTRY -->
-    <div id="pinModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+    <!-- FLOATING MODAL FOR ADMIN LOGIN ENTRY (SECURED OPTION 3) -->
+    <div id="loginModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
         <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
             <div class="flex justify-between items-center border-b border-slate-700 pb-3">
-                <h3 class="font-bold text-lg text-white">Enter Admin PIN</h3>
-                <button onclick="closePinModal()" class="text-slate-400 hover:text-white">
+                <h3 class="font-bold text-lg text-white">Admin Login</h3>
+                <button onclick="closeLoginModal()" class="text-slate-400 hover:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
             
-            <div class="space-y-2">
-                <p class="text-xs text-slate-400 leading-relaxed">Please enter the 4-digit administrative password to authorize this action.</p>
-                <input type="password" id="adminPinInput" pattern="[0-9]*" inputmode="numeric" maxlength="8"
-                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3.5 text-white font-bold text-center text-3xl tracking-widest focus:outline-none focus:border-blue-500 digital-font"
-                    placeholder="••••" onkeydown="if(event.key==='Enter') submitAdminPin()">
-                <p id="pinErrorText" class="text-xs text-rose-400 hidden font-semibold">❌ Incorrect PIN. Please try again.</p>
+            <div class="space-y-3">
+                <p class="text-xs text-slate-400 leading-relaxed">Enter your administrator credentials to unlock system clocks, configs, and admin dashboard.</p>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Email</label>
+                    <input type="email" id="adminEmailInput" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-medium text-sm focus:outline-none focus:border-blue-500" placeholder="admin@example.com">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Password</label>
+                    <input type="password" id="adminPasswordInput" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-medium text-sm focus:outline-none focus:border-blue-500" placeholder="••••••••">
+                </div>
+                <p id="loginErrorText" class="text-xs text-rose-400 hidden font-semibold">❌ Login failed. Check credentials.</p>
             </div>
 
             <div class="flex gap-3 pt-2">
-                <button onclick="closePinModal()" class="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-200">Cancel</button>
-                <button onclick="submitAdminPin()" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-white">Unlock</button>
+                <button onclick="closeLoginModal()" class="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-200">Cancel</button>
+                <button onclick="submitAdminLogin()" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-white">Login</button>
             </div>
         </div>
     </div>
@@ -432,7 +437,7 @@
     <script type="module">
         // Import Firebase JS modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // =========================================================================
@@ -448,11 +453,6 @@
             measurementId: "G-K43QTHQ7HV"
         };
         const DEPLOYED_APP_ID = "regattamaster5k";
-
-        // =========================================================================
-        // SECURITY CONFIG: Secure Admin PIN setup
-        // =========================================================================
-        const ADMIN_PIN = "2026"; // Default passcode required for Clock toggles, Admin View, editing & wiping data
 
         // --- GLOBAL ENVIRONMENT INITS ---
         const appId = typeof __app_id !== 'undefined' && __app_id ? __app_id : DEPLOYED_APP_ID;
@@ -546,14 +546,29 @@
                 }
 
                 // Track authentication
-                onAuthStateChanged(auth, (usr) => {
+                onAuthStateChanged(auth, async (usr) => {
                     user = usr;
                     if (usr) {
+                        isAdminAuthenticated = !usr.isAnonymous;
+                        updateAdminStatusBadge();
                         updateSyncStatus('connected');
                         setupCloudSync();
                     } else {
-                        updateSyncStatus('local');
-                        runLocalMode();
+                        isAdminAuthenticated = false;
+                        updateAdminStatusBadge();
+                        if (isCloudEnabled) {
+                            // Automatically sign in anonymously if completely logged out
+                            try {
+                                await signInAnonymously(auth);
+                            } catch (err) {
+                                console.error("Auto anonymous sign-in failed:", err);
+                                updateSyncStatus('local');
+                                runLocalMode();
+                            }
+                        } else {
+                            updateSyncStatus('local');
+                            runLocalMode();
+                        }
                     }
                 });
             } else {
@@ -602,64 +617,84 @@
                 callback();
             } else {
                 pendingAdminCallback = callback;
-                const pinInput = document.getElementById('adminPinInput');
-                if (pinInput) pinInput.value = '';
+                const emailInput = document.getElementById('adminEmailInput');
+                const passInput = document.getElementById('adminPasswordInput');
+                if (emailInput) emailInput.value = '';
+                if (passInput) passInput.value = '';
                 
-                const errText = document.getElementById('pinErrorText');
+                const errText = document.getElementById('loginErrorText');
                 if (errText) errText.classList.add('hidden');
                 
-                const modal = document.getElementById('pinModal');
+                const modal = document.getElementById('loginModal');
                 if (modal) modal.classList.remove('hidden');
                 
-                setTimeout(() => { if (pinInput) pinInput.focus(); }, 150);
+                setTimeout(() => { if (emailInput) emailInput.focus(); }, 150);
             }
         }
 
-        function submitAdminPin() {
-            const input = document.getElementById('adminPinInput');
-            const errText = document.getElementById('pinErrorText');
-            if (!input) return;
+        async function submitAdminLogin() {
+            const emailInput = document.getElementById('adminEmailInput');
+            const passwordInput = document.getElementById('adminPasswordInput');
+            const errText = document.getElementById('loginErrorText');
+            if (!emailInput || !passwordInput) return;
 
-            if (input.value === ADMIN_PIN) {
-                isAdminAuthenticated = true;
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+
+            if (!email || !password) {
+                if (errText) {
+                    errText.textContent = "❌ Please enter both email and password.";
+                    errText.classList.remove('hidden');
+                }
+                return;
+            }
+
+            try {
+                // Sign in using email/password.
+                await signInWithEmailAndPassword(auth, email, password);
                 sessionStorage.setItem('regatta_admin_auth', 'true');
-                closePinModal();
-                updateAdminStatusBadge();
+                closeLoginModal();
                 
                 if (pendingAdminCallback) {
                     const cb = pendingAdminCallback;
                     pendingAdminCallback = null;
                     cb();
                 }
-            } else {
+            } catch (error) {
                 playBeep();
-                if (errText) errText.classList.remove('hidden');
-                input.value = '';
-                input.focus();
+                console.error("Admin Login Error:", error);
+                if (errText) {
+                    errText.textContent = `❌ Login failed: ${error.message}`;
+                    errText.classList.remove('hidden');
+                }
             }
         }
 
-        function closePinModal() {
-            const modal = document.getElementById('pinModal');
+        function closeLoginModal() {
+            const modal = document.getElementById('loginModal');
             if (modal) modal.classList.add('hidden');
             pendingAdminCallback = null;
         }
 
-        function toggleAdminLockState() {
+        async function toggleAdminLockState() {
             if (isAdminAuthenticated) {
-                // If active, lock it immediately
-                isAdminAuthenticated = false;
-                sessionStorage.removeItem('regatta_admin_auth');
-                updateAdminStatusBadge();
+                const confirmLogOut = await showConfirm("Admin Logout", "Are you sure you want to lock admin controls?");
+                if (!confirmLogOut) return;
                 
-                // If they are currently in dual/admin view, redirect them safely to start line marshal view
+                try {
+                    await signOut(auth);
+                    sessionStorage.removeItem('regatta_admin_auth');
+                } catch (e) {
+                    console.error("Sign out error:", e);
+                }
+                
+                // Redirect user to Start Line view if they were previously using Dual mode
                 if (stationRole === 'all') {
                     setStationRole('start');
                 }
             } else {
-                // Prompt authentication
                 checkAdminAccess(() => {
-                    // Unlocked callback
+                    // Success callback
                 });
             }
         }
@@ -667,12 +702,12 @@
         function updateAdminStatusBadge() {
             const badge = document.getElementById('adminStatusBadge');
             if (!badge) return;
-            if (isAdminAuthenticated) {
+            if (isAdminAuthenticated && user) {
                 badge.className = "text-xs px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1 transition-all duration-150 active:scale-95";
-                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 🔓 Admin Unlocked (Lock)`;
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> 🔓 Admin: ${user.email} (Lock)`;
             } else {
                 badge.className = "text-xs px-2.5 py-1 rounded-full bg-amber-950 text-amber-400 border border-amber-800 flex items-center gap-1 transition-all duration-150 active:scale-95";
-                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 🔒 Admin Locked`;
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> 🔒 Admin Locked`;
             }
         }
 
@@ -1611,8 +1646,8 @@ service cloud.firestore {
         window.dismissDiagnostics = dismissDiagnostics;
         window.setStationRole = setStationRole;
         window.triggerPrimaryAction = triggerPrimaryAction;
-        window.submitAdminPin = submitAdminPin;
-        window.closePinModal = closePinModal;
+        window.submitAdminLogin = submitAdminLogin;
+        window.closeLoginModal = closeLoginModal;
         window.toggleAdminLockState = toggleAdminLockState;
     </script>
 </body>
