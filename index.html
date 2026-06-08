@@ -376,7 +376,7 @@
                 </div>
                 <div>
                     <label class="block text-xs text-slate-400 mb-1">Category</label>
-                    <input type="text" id="editCategory" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500">
+                    <input type="text" id="editCategory" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" readonly>
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
@@ -430,6 +430,27 @@
                 <button onclick="closeLoginModal()" class="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-200">Cancel</button>
                 <button onclick="submitAdminLogin()" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-white">Login</button>
             </div>
+        </div>
+    </div>
+
+    <!-- FLOATING MODAL FOR CONFLICT RESOLUTION (REPETITIVE BOW NUMBER MATCHES) -->
+    <div id="conflictModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                <h3 class="font-bold text-lg text-white">Identify Finishing Boat</h3>
+                <button onclick="closeConflictModal()" class="text-slate-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="space-y-2">
+                <p class="text-xs text-slate-400 leading-relaxed">Multiple boats with Bow #<span id="conflictBowNum" class="font-bold text-blue-400"></span> are currently racing. Select the matching crossing crew:</p>
+                <div id="conflictOptionsList" class="space-y-2 max-h-[250px] overflow-y-auto">
+                    <!-- Dynamic select keys load in here -->
+                </div>
+            </div>
+            <button onclick="closeConflictModal()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold text-slate-200">Cancel</button>
         </div>
     </div>
 
@@ -513,7 +534,7 @@
             elapsedOffset: 0,
             isRunning: false,
             raceDistance: 5000, // Default distance in meters
-            boats: {}
+            boats: {}          // Key: Unique composite ID, Value: { bow, crew, category, startMs, finishMs, penaltySeconds }
         };
 
         // Station-specific roles: 'all' (Dual/Admin), 'start' (Start marshal), 'finish' (Finish marshal)
@@ -1235,8 +1256,8 @@ service cloud.firestore {
                         });
 
                         // Clear out existing cloud collection of boats (Rule 2 simple queries)
-                        const deletePromises = bowsToDelete.map(bow => {
-                            return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
+                        const deletePromises = bowsToDelete.map(id => {
+                            return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', id));
                         });
                         await Promise.all(deletePromises);
                     } catch(e) {
@@ -1287,8 +1308,18 @@ service cloud.firestore {
             updateOnCourseTimers();
         }
 
+        // --- CONFLICT RESOLUTION MODAL MODULES ---
+        function closeConflictModal() {
+            document.getElementById('conflictModal').classList.add('hidden');
+        }
+
+        function triggerConflictFinish(id, timestamp) {
+            commitFinishTimestamp(id, timestamp);
+            closeConflictModal();
+        }
+
         // --- EVENT LOGGER/RECORDING OPERATIONS ---
-        async function recordAction(type, targetBow = null) {
+        async function recordAction(type, targetKey = null) {
             playBeep();
             
             if (!state.masterStartTime && !state.elapsedOffset) {
@@ -1301,69 +1332,176 @@ service cloud.firestore {
             const categoryInput = document.getElementById('eventCategory');
             const penaltyInput = document.getElementById('penaltySelect');
 
-            const bow = (targetBow || bowInput.value).trim();
-            if (!bow) {
-                await showAlert("Missing Data", "Please input a valid Bow number first.");
-                return;
-            }
-
             const timestamp = getCurrentElapsedMs();
-            let targetBoat = state.boats[bow];
-
-            let nextBoatData = targetBoat ? { ...targetBoat } : {
-                crew: (crewInput ? crewInput.value.trim() : '') || `Bow ${bow}`,
-                category: categoryInput ? categoryInput.value : "Men's 1x",
-                startMs: null,
-                finishMs: null,
-                penaltySeconds: penaltyInput ? parseInt(penaltyInput.value) || 0 : 0
-            };
 
             if (type === 'start') {
+                const bow = bowInput.value.trim();
+                const category = categoryInput.value;
+                if (!bow) {
+                    await showAlert("Missing Data", "Please input a valid Bow number first.");
+                    return;
+                }
+
+                // Generate highly secure composite ID using sanitized category names
+                const safeCategoryName = category.replace(/[^a-zA-Z0-9]/g, '');
+                const id = `${bow}_${safeCategoryName}`;
+
+                let targetBoat = state.boats[id];
+                let nextBoatData = targetBoat ? { ...targetBoat } : {
+                    id: id,
+                    bow: bow,
+                    crew: crewInput.value.trim() || `Bow ${bow}`,
+                    category: category,
+                    startMs: null,
+                    finishMs: null,
+                    penaltySeconds: parseInt(penaltyInput.value) || 0
+                };
+
                 if (nextBoatData.startMs !== null) {
                     const confirmOverwrite = await showConfirm(
                         "Overwrite Warning", 
-                        `Bow #${bow} already has a logged start time. Replace it?`
+                        `Bow #${bow} (${category}) already has a logged start time. Replace it?`
                     );
                     if (!confirmOverwrite) return;
                 }
-                nextBoatData.startMs = timestamp;
-            } else if (type === 'finish') {
-                if (nextBoatData.startMs === null) {
-                    const confirmFinish = await showConfirm(
-                        "Out of Order", 
-                        `Bow #${bow} is crossing the finish without a registered start time. Record anyway?`
-                    );
-                    if (!confirmFinish) return;
-                }
-                nextBoatData.finishMs = timestamp;
-            }
 
-            // Always commit state locally first for instant page update
-            state.boats[bow] = nextBoatData;
+                nextBoatData.startMs = timestamp;
+                await commitBoatRecord(id, nextBoatData);
+
+                // Quick cleanup of form fields & refocus back on the numeric Bow input field
+                bowInput.value = '';
+                crewInput.value = '';
+                penaltyInput.value = '0';
+                bowInput.focus();
+
+            } else if (type === 'finish') {
+                // If a direct target composite Key (like tapping On Course button or Select Conflict modal) was provided
+                if (targetKey) {
+                    commitFinishTimestamp(targetKey, timestamp);
+                    return;
+                }
+
+                // Otherwise, handle manual text entry terminal typing
+                const bow = bowInput.value.trim();
+                if (!bow) {
+                    await showAlert("Missing Data", "Please input a valid Bow number first.");
+                    return;
+                }
+
+                // Check active on-course racing competitors matching typed bow number
+                const matchingActiveRacing = Object.values(state.boats).filter(b => {
+                    return b.bow === bow && b.startMs !== null && b.finishMs === null;
+                });
+
+                if (matchingActiveRacing.length === 1) {
+                    // Exactly 1 boat with that bow number racing on water, record finish instantly!
+                    commitFinishTimestamp(matchingActiveRacing[0].id, timestamp);
+                    bowInput.value = '';
+                    bowInput.focus();
+                } else if (matchingActiveRacing.length > 1) {
+                    // Overlapping repeating bow numbers active on water! Reveal beautiful resolution selector
+                    openConflictResolutionModal(bow, matchingActiveRacing, timestamp);
+                } else {
+                    // No active boat on water matches this bow number.
+                    // Check if a boat has been registered *at all* matching this bow number
+                    const matchingRegistered = Object.values(state.boats).filter(b => b.bow === bow);
+
+                    if (matchingRegistered.length === 1) {
+                        const confirmOut = await showConfirm(
+                            "Out of Order", 
+                            `Bow #${bow} is crossing without a registered start time. Record finish anyway?`
+                        );
+                        if (confirmOut) {
+                            commitFinishTimestamp(matchingRegistered[0].id, timestamp);
+                        }
+                    } else if (matchingRegistered.length > 1) {
+                        // Multiple matching registered boats, let them choose even if not started
+                        openConflictResolutionModal(bow, matchingRegistered, timestamp);
+                    } else {
+                        // Completely unregistered bow number crossing finish line, create a fresh anonymous class
+                        const category = categoryInput.value;
+                        const safeCategoryName = category.replace(/[^a-zA-Z0-9]/g, '');
+                        const newId = `${bow}_${safeCategoryName}`;
+
+                        const confirmFresh = await showConfirm(
+                            "Unregistered Boat",
+                            `Bow #${bow} is crossing without a recorded start. Create a fresh record under class ${category}?`
+                        );
+                        if (confirmFresh) {
+                            const nextBoatData = {
+                                id: newId,
+                                bow: bow,
+                                crew: crewInput.value.trim() || `Bow ${bow}`,
+                                category: category,
+                                startMs: null,
+                                finishMs: timestamp,
+                                penaltySeconds: parseInt(penaltyInput.value) || 0
+                            };
+                            await commitBoatRecord(newId, nextBoatData);
+                        }
+                    }
+                    bowInput.value = '';
+                    bowInput.focus();
+                }
+            }
+        }
+
+        // Open Conflict Resolution Modal with dynamic selection buttons
+        function openConflictResolutionModal(bow, matchedBoats, timestamp) {
+            const modal = document.getElementById('conflictModal');
+            const bowSpan = document.getElementById('conflictBowNum');
+            const listContainer = document.getElementById('conflictOptionsList');
+
+            bowSpan.textContent = bow;
+            listContainer.innerHTML = '';
+
+            matchedBoats.forEach(boat => {
+                const button = document.createElement('button');
+                button.className = "w-full text-left p-3.5 bg-slate-900 border border-slate-700 hover:border-blue-500 rounded-xl transition flex justify-between items-center";
+                button.onclick = () => {
+                    commitFinishTimestamp(boat.id, timestamp);
+                    closeConflictModal();
+                    document.getElementById('bowNum').value = '';
+                    document.getElementById('bowNum').focus();
+                };
+                button.innerHTML = `
+                    <div>
+                        <div class="font-bold text-sm text-white">${boat.crew}</div>
+                        <div class="text-xs text-slate-400">${boat.category}</div>
+                    </div>
+                    <span class="text-[10px] text-blue-400 font-mono">Started: ${boat.startMs ? formatMsToTimeStr(boat.startMs) : "Not Logged"}</span>
+                `;
+                listContainer.appendChild(button);
+            });
+
+            modal.classList.remove('hidden');
+        }
+
+        // Commit finish timestamp securely to state and fire off to cloud
+        async function commitFinishTimestamp(id, timestamp) {
+            if (!state.boats[id]) return;
+            state.boats[id].finishMs = timestamp;
+            await commitBoatRecord(id, state.boats[id]);
+        }
+
+        // Core data committer writes to local state + database sync
+        async function commitBoatRecord(id, data) {
+            state.boats[id] = data;
             saveStateToLocalStorage();
             renderTable();
             renderOnCourseGrid();
             renderStartMarshalRecentDepartures();
             updateSummaryCounters();
 
-            // Background Sync
             if (isCloudEnabled && user) {
                 try {
-                    const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
-                    await setDoc(boatDocRef, nextBoatData);
+                    const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', id);
+                    await setDoc(boatDocRef, data);
                 } catch (e) {
-                    console.error("Cloud boat update failed. Running locally:", e);
+                    console.error("Cloud boat update failed:", e);
                     isCloudEnabled = false;
                     updateSyncStatus('local_fallback', e.message);
                 }
-            }
-
-            // Quick cleanup of form fields & refocus back on the numeric Bow input field
-            if (!targetBow) {
-                if (bowInput) bowInput.value = '';
-                if (crewInput) crewInput.value = '';
-                if (penaltyInput) penaltyInput.value = '0';
-                if (bowInput) bowInput.focus();
             }
         }
 
@@ -1373,7 +1511,7 @@ service cloud.firestore {
             if (!container) return;
             container.innerHTML = '';
 
-            const onCourseBoats = Object.entries(state.boats).filter(([bow, data]) => {
+            const onCourseBoats = Object.entries(state.boats).filter(([id, data]) => {
                 return data.startMs !== null && data.finishMs === null;
             });
 
@@ -1388,17 +1526,18 @@ service cloud.firestore {
                 return;
             }
 
-            // Sort by start time ascending.
+            // Sort by start time ascending (boat racing longest is placed top-left)
             onCourseBoats.sort((a, b) => a[1].startMs - b[1].startMs);
 
-            onCourseBoats.forEach(([bow, data]) => {
+            onCourseBoats.forEach(([id, data]) => {
                 const button = document.createElement('button');
-                button.className = "flex flex-col justify-between items-center p-3 bg-slate-900 border border-slate-700 hover:border-rose-500 active:scale-95 transition rounded-xl text-center shadow-md relative overflow-hidden group min-h-[75px]";
-                button.onclick = () => recordAction('finish', bow);
+                button.className = "flex flex-col justify-between items-center p-3 bg-slate-900 border border-slate-700 hover:border-rose-500 active:scale-95 transition rounded-xl text-center shadow-md relative overflow-hidden group min-h-[85px]";
+                button.onclick = () => recordAction('finish', id);
                 
                 button.innerHTML = `
-                    <div class="absolute top-1 left-2 text-[10px] text-slate-400 font-bold bg-slate-800 px-1.5 py-0.5 rounded">#${bow}</div>
+                    <div class="absolute top-1 left-2 text-[10px] text-slate-400 font-bold bg-slate-800 px-1.5 py-0.5 rounded">#${data.bow}</div>
                     <div class="mt-4 font-bold text-sm text-ellipsis overflow-hidden w-full whitespace-nowrap text-white">${data.crew}</div>
+                    <div class="text-[10px] text-slate-400 truncate w-full mb-1">${data.category}</div>
                     <div class="text-[11px] font-mono text-amber-400 dynamic-elapsed" data-start="${data.startMs}">00:00</div>
                     <div class="absolute inset-0 bg-rose-600/10 opacity-0 group-hover:opacity-100 transition duration-150 flex items-center justify-center text-[10px] font-extrabold text-rose-400 tracking-wider">TAP TO FINISH</div>
                 `;
@@ -1406,13 +1545,13 @@ service cloud.firestore {
             });
         }
 
-        // Renders the recently started boat queue for the Start Marshal's verify check
+        // Renders recently departed boats (Last 5)
         function renderStartMarshalRecentDepartures() {
             const tbody = document.getElementById('recentDeparturesList');
             if (!tbody) return;
             tbody.innerHTML = '';
 
-            const startedBoats = Object.entries(state.boats).filter(([bow, data]) => {
+            const startedBoats = Object.entries(state.boats).filter(([id, data]) => {
                 return data.startMs !== null;
             });
 
@@ -1424,18 +1563,20 @@ service cloud.firestore {
                 return;
             }
 
-            // Sort by startMs descending (most recently departed first)
+            // Sort by startMs descending
             startedBoats.sort((a, b) => b[1].startMs - a[1].startMs);
 
-            // Slice out top 5 items for the widget queue
             const topFive = startedBoats.slice(0, 5);
 
-            topFive.forEach(([bow, data]) => {
+            topFive.forEach(([id, data]) => {
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-800/40 border-b border-slate-850 text-xs";
                 tr.innerHTML = `
-                    <td class="py-2.5 px-3 font-bold text-blue-400">#${bow}</td>
-                    <td class="py-2.5 px-3 text-slate-300 font-sans truncate max-w-[120px]">${data.crew}</td>
+                    <td class="py-2.5 px-3 font-bold text-blue-400">#${data.bow}</td>
+                    <td class="py-2.5 px-3 text-slate-300 font-sans truncate max-w-[120px]">
+                        <div>${data.crew}</div>
+                        <div class="text-[9px] text-slate-500">${data.category}</div>
+                    </td>
                     <td class="py-2.5 px-3 text-slate-400 font-mono">${formatMsToTimeStr(data.startMs)}</td>
                 `;
                 tbody.appendChild(tr);
@@ -1477,7 +1618,7 @@ service cloud.firestore {
 
             let hasMatches = false;
 
-            const sortedBows = Object.keys(state.boats).sort((a, b) => {
+            const sortedKeys = Object.keys(state.boats).sort((a, b) => {
                 const bA = state.boats[a];
                 const bB = state.boats[b];
 
@@ -1492,11 +1633,11 @@ service cloud.firestore {
                 return netA - netB;
             });
 
-            sortedBows.forEach(bow => {
-                const data = state.boats[bow];
+            sortedKeys.forEach(id => {
+                const data = state.boats[id];
                 
                 const crewNameMatch = data.crew.toLowerCase().includes(searchVal);
-                const bowMatch = bow.includes(searchVal);
+                const bowMatch = data.bow.includes(searchVal);
                 const categoryMatch = (data.category || '').toLowerCase().includes(searchVal);
 
                 if (searchVal && !crewNameMatch && !bowMatch && !categoryMatch) return;
@@ -1513,7 +1654,7 @@ service cloud.firestore {
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-750 transition duration-150 border-b border-slate-700/60";
                 tr.innerHTML = `
-                    <td class="py-3 px-4 font-bold text-white text-base digital-font">#${bow}</td>
+                    <td class="py-3 px-4 font-bold text-white text-base digital-font">#${data.bow}</td>
                     <td class="py-3 px-4">
                         <div class="font-semibold text-slate-100">${data.crew}</div>
                         <div class="text-xs text-slate-400 font-medium">${data.category || 'Standard Category'}</div>
@@ -1531,10 +1672,10 @@ service cloud.firestore {
                     <td class="py-3 px-4 text-xs font-semibold text-sky-400 digital-font">${paceStr}</td>
                     <td class="py-3 px-4 text-right">
                         <div class="flex gap-2 justify-end">
-                            <button onclick="openEditModal('${bow}')" class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 active:scale-95 transition text-xs font-semibold rounded-lg text-slate-300 hover:text-white" title="Edit Parameters">
+                            <button onclick="openEditModal('${id}')" class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 active:scale-95 transition text-xs font-semibold rounded-lg text-slate-300 hover:text-white" title="Edit Parameters">
                                 Edit
                             </button>
-                            <button onclick="deleteBoatWithWarning('${bow}')" class="px-2 py-1.5 bg-rose-950/20 hover:bg-rose-950/50 hover:text-rose-400 active:scale-95 transition text-xs font-semibold rounded-lg text-slate-400" title="Delete Row">
+                            <button onclick="deleteBoatWithWarning('${id}')" class="px-2 py-1.5 bg-rose-950/20 hover:bg-rose-950/50 hover:text-rose-400 active:scale-95 transition text-xs font-semibold rounded-lg text-slate-400" title="Delete Row">
                                 Remove
                             </button>
                         </div>
@@ -1568,12 +1709,12 @@ service cloud.firestore {
         }
 
         // --- EDITING DETAILS MODALS ---
-        function openEditModal(bow) {
+        function openEditModal(id) {
             checkAdminAccess(() => {
-                const data = state.boats[bow];
+                const data = state.boats[id];
                 if (!data) return;
 
-                document.getElementById('editBowId').value = bow;
+                document.getElementById('editBowId').value = id;
                 document.getElementById('editCrewName').value = data.crew;
                 document.getElementById('editCategory').value = data.category || '';
                 document.getElementById('editStartSec').value = data.startMs !== null ? (data.startMs / 1000).toFixed(1) : '';
@@ -1589,57 +1730,43 @@ service cloud.firestore {
         }
 
         async function saveEditDetails() {
-            // Guarded internally by openEditModal verification
-            const bow = document.getElementById('editBowId').value;
-            if (!state.boats[bow]) return;
+            const id = document.getElementById('editBowId').value;
+            if (!state.boats[id]) return;
 
             const crew = document.getElementById('editCrewName').value.trim();
-            const category = document.getElementById('editCategory').value.trim();
             const startVal = parseFloat(document.getElementById('editStartSec').value);
             const finishVal = parseFloat(document.getElementById('editFinishSec').value);
             const penaltyVal = parseInt(document.getElementById('editPenalty').value) || 0;
 
             const updatedData = {
-                crew: crew || `Bow ${bow}`,
-                category: category,
+                id: id,
+                bow: state.boats[id].bow,
+                crew: crew || `Bow ${state.boats[id].bow}`,
+                category: state.boats[id].category,
                 startMs: !isNaN(startVal) ? Math.round(startVal * 1000) : null,
                 finishMs: !isNaN(finishVal) ? Math.round(finishVal * 1000) : null,
                 penaltySeconds: penaltyVal
             };
 
             // Local updates
-            state.boats[bow] = updatedData;
+            await commitBoatRecord(id, updatedData);
             closeEditModal();
-            saveStateToLocalStorage();
-            renderTable();
-            renderOnCourseGrid();
-            renderStartMarshalRecentDepartures();
-            updateSummaryCounters();
-
-            // Cloud Sync
-            if (isCloudEnabled && user) {
-                try {
-                    const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
-                    await setDoc(boatDocRef, updatedData);
-                } catch (e) {
-                    console.error("Cloud boat edit save failed. Locally saved:", e);
-                    isCloudEnabled = false;
-                    updateSyncStatus('local_fallback', e.message);
-                }
-            }
         }
 
         // --- DATA DESTRUCTION AND ERASE OPERATIONS ---
-        async function deleteBoatWithWarning(bow) {
+        async function deleteBoatWithWarning(id) {
             checkAdminAccess(async () => {
+                const data = state.boats[id];
+                if (!data) return;
+
                 const confirmed = await showConfirm(
                     "Delete Boat", 
-                    `Are you sure you want to completely erase Bow #${bow}?`
+                    `Are you sure you want to completely erase Bow #${data.bow} (${data.category})?`
                 );
                 if (!confirmed) return;
 
                 // Local update first
-                delete state.boats[bow];
+                delete state.boats[id];
                 saveStateToLocalStorage();
                 renderTable();
                 renderOnCourseGrid();
@@ -1649,7 +1776,7 @@ service cloud.firestore {
                 // Cloud delete background
                 if (isCloudEnabled && user) {
                     try {
-                        const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow);
+                        const boatDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'boats', id);
                         await deleteDoc(boatDocRef);
                     } catch (e) {
                         console.error("Cloud boat deletion failed:", e);
@@ -1668,7 +1795,7 @@ service cloud.firestore {
                 );
                 if (!confirmed) return;
 
-                const bowsToDelete = Object.keys(state.boats);
+                const keysToDelete = Object.keys(state.boats);
 
                 // Local reset first
                 state.boats = {};
@@ -1681,8 +1808,8 @@ service cloud.firestore {
                 // Background Cloud sync
                 if (isCloudEnabled && user) {
                     try {
-                        const deletePromises = bowsToDelete.map(bow => {
-                            return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', bow));
+                        const deletePromises = keysToDelete.map(id => {
+                            return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boats', id));
                         });
                         await Promise.all(deletePromises);
                     } catch (e) {
@@ -1698,7 +1825,7 @@ service cloud.firestore {
         function exportCSV() {
             let csv = `Bow Number,Crew / Club,Category,Start Elapsed (ms),Finish Elapsed (ms),Penalty (sec),Net Time,Pace (500m split @ ${state.raceDistance || 5000}m)\n`;
             
-            const sortedBows = Object.keys(state.boats).sort((a, b) => {
+            const sortedKeys = Object.keys(state.boats).sort((a, b) => {
                 const bA = state.boats[a];
                 const bB = state.boats[b];
                 const netA = (bA.finishMs !== null && bA.startMs !== null) ? (bA.finishMs - bA.startMs + (bA.penaltySeconds * 1000)) : Infinity;
@@ -1706,14 +1833,14 @@ service cloud.firestore {
                 return netA - netB;
             });
 
-            sortedBows.forEach(bow => {
-                const data = state.boats[bow];
+            sortedKeys.forEach(id => {
+                const data = state.boats[id];
                 const hasFinished = data.startMs !== null && data.finishMs !== null;
                 const totalNetMs = hasFinished ? (data.finishMs - data.startMs + (data.penaltySeconds * 1000)) : null;
                 const pace = hasFinished ? calculatePace(totalNetMs) : "N/A";
                 const formattedNet = hasFinished ? formatMsToTimeStr(totalNetMs) : "On Course";
 
-                csv += `${bow},"${data.crew.replace(/"/g, '""')}","${data.category}",${data.startMs || ''},${data.finishMs || ''},${data.penaltySeconds},${formattedNet},${pace}\n`;
+                csv += `${data.bow},"${data.crew.replace(/"/g, '""')}","${data.category}",${data.startMs || ''},${data.finishMs || ''},${data.penaltySeconds},${formattedNet},${pace}\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1752,6 +1879,7 @@ service cloud.firestore {
         window.closeLoginModal = closeLoginModal;
         window.toggleAdminLockState = toggleAdminLockState;
         window.changeDistance = changeDistance;
+        window.closeConflictModal = closeConflictModal;
     </script>
 </body>
 </html>
